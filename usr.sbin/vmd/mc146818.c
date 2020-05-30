@@ -382,15 +382,10 @@ mc146818_restore(int fd, uint32_t vm_id)
 void
 mc146818_stop()
 {
-	struct timeval tv;
-
 	timer_del(&evmutex, &rtc.per);
 	timer_del(&evmutex, &rtc.sec);
 
-	timerclear(&tv);
-	tv.tv_sec = 3;
-	tv.tv_usec = 0;
-	event_base_loopexit(evbase, &tv);
+	event_base_loopexit(evbase, NULL);
 }
 
 void

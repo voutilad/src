@@ -50,12 +50,13 @@ static pthread_t i8253_thread;
 static pthread_mutex_t evmutex;
 static struct event ev_start_watchdog;
 
-void i8253_start_watchdog(int, short, void*);
-
-void
+static void
 i8253_start_watchdog(int i, short s, void *arg)
 {
+	struct timeval tv;
 	log_info("%s: timed out", __func__);
+	timerclear(&tv);
+	tv.tv_sec = 1;
 }
 
 /*
@@ -115,11 +116,14 @@ i8253_init_thread(void)
 	int ret;
 	struct timeval tv;
 
+	// We need an event to make sure the event loop doesn't run dry before
+	// the i8253 can be used. For now let's try a single timer event.
 	timerclear(&tv);
-	tv.tv_sec = 60 * 60;
-	event_set(&ev_start_watchdog, -1, EV_PERSIST, i8253_start_watchdog, NULL);
+	tv.tv_sec = 1;
+
+	evtimer_set(&ev_start_watchdog, i8253_start_watchdog, NULL);
 	event_base_set(evbase, &ev_start_watchdog);
-	ev_add(&evmutex, &ev_start_watchdog, &tv);
+	timer_add(&evmutex, &ev_start_watchdog, &tv);
 
 	log_info("%s: starting thread with evbase %p", __func__, evbase);
 	ret = pthread_create(&i8253_thread, NULL, event_loop_thread, evbase);
@@ -437,14 +441,10 @@ void
 i8253_stop()
 {
 	int i;
-	struct timeval tv;
-
 	for (i = 0; i < 3; i++)
 		timer_del(&evmutex, &i8253_channel[i].timer);
 
-	tv.tv_sec = 3;
-	tv.tv_usec = 0;
-	event_base_loopexit(evbase, &tv);
+	event_base_loopexit(evbase, NULL);
 }
 
 void

@@ -366,9 +366,6 @@ start_vm(struct vmd_vm *vm, int fd)
 	for (i = 0; i < VMM_MAX_NICS_PER_VM; i++)
 		nicfds[i] = vm->vm_ifs[i].vif_fd;
 
-	event_init();
-	global_evbase = event_base_new();
-
 	if (vm->vm_state & VM_STATE_RECEIVED) {
 		restore_emulated_hw(vcp, vm->vm_receive_fd, nicfds,
 		    vm->vm_disks, vm->vm_cdrom);
@@ -1302,6 +1299,12 @@ run_vm(int child_cdrom, int child_disks[][VM_MAX_BASE_PER_DISK],
 		log_warn("%s: could not create event thread", __func__);
 		return (ret);
 	}
+
+	/* XXX: this logic could move elsewhere...need some initial events
+	 * configured before we start the event loops.
+	 */
+	i8253_start();
+	ns8250_start();
 
 	mc146818_init_thread();
 	ns8250_init_thread();

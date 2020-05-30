@@ -2368,7 +2368,6 @@ virtio_dump(int fd)
 void
 virtio_stop(struct vm_create_params *vcp)
 {
-	struct timeval tv;
 	uint8_t i;
 	for (i = 0; i < vcp->vcp_nnics; i++) {
 		if (ev_del(&evmutex, &vionet[i].event)) {
@@ -2378,9 +2377,7 @@ virtio_stop(struct vm_create_params *vcp)
 		}
 	}
 
-	tv.tv_sec = 3;
-	tv.tv_usec = 0;
-	event_base_loopexit(evbase, &tv);
+	event_base_loopexit(evbase, NULL);
 }
 
 void

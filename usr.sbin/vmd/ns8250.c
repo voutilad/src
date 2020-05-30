@@ -121,8 +121,6 @@ ns8250_init(int fd, uint32_t vmid)
 	    com_rcv_event, (void *)(intptr_t)vmid);
 	event_base_set(evbase, &com1_dev.wake);
 
-	ev_add(&evmutex, &com1_dev.wake, NULL);
-
 	/* Rate limiter for simulating baud rate */
 	timerclear(&com1_dev.rate_tv);
 	com1_dev.rate_tv.tv_usec = 10000;
@@ -284,16 +282,9 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		com1_dev.byte_out++;
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
-			/* Limit output rate if needed */
-			if (com1_dev.pause_ct > 0 &&
-			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
-				timer_add(&evmutex, &com1_dev.rate,
-					    &com1_dev.rate_tv);
-			} else {
 				/* Set TXRDY and clear "no pending interrupt" */
 				com1_dev.regs.iir |= IIR_TXRDY;
 				com1_dev.regs.iir &= ~IIR_NOPEND;
-			}
 		}
 	} else {
 		if (com1_dev.regs.lcr & LCR_DLAB) {
@@ -702,15 +693,11 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 void
 ns8250_stop()
 {
-	struct timeval tv;
-
 	if (ev_del(&evmutex, &com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
 	timer_del(&evmutex, &com1_dev.rate);
 
-	tv.tv_sec = 3;
-	tv.tv_usec = 0;
-	event_base_loopexit(evbase, &tv);
+	event_base_loopexit(evbase, NULL);
 }
 
 void
