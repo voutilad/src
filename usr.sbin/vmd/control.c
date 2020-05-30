@@ -39,6 +39,8 @@
 
 #define	CONTROL_BACKLOG	5
 
+extern struct event_base *global_evbase;
+
 struct ctl_connlist ctl_conns;
 
 void
@@ -198,8 +200,10 @@ control_listen(struct control_sock *cs)
 
 	event_set(&cs->cs_ev, cs->cs_fd, EV_READ,
 	    control_accept, cs);
+	event_base_set(global_evbase, &cs->cs_ev);
 	event_add(&cs->cs_ev, NULL);
 	evtimer_set(&cs->cs_evt, control_accept, cs);
+	event_base_set(global_evbase, &cs->cs_evt);
 
 	return (0);
 }
@@ -256,6 +260,7 @@ control_accept(int listenfd, short event, void *arg)
 	c->iev.data = cs;
 	event_set(&c->iev.ev, c->iev.ibuf.fd, c->iev.events,
 	    c->iev.handler, c->iev.data);
+	event_base_set(global_evbase, &c->iev.ev);
 	event_add(&c->iev.ev, NULL);
 
 	TAILQ_INSERT_TAIL(&ctl_conns, c, entry);

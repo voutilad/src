@@ -77,6 +77,7 @@ struct ns8250_dev {
 };
 
 void ns8250_init(int, uint32_t);
+void ns8250_init_thread(void);
 uint8_t vcpu_exit_com(struct vm_run_params *);
 uint8_t vcpu_process_com_data(struct vm_exit *, uint32_t, uint32_t);
 void vcpu_process_com_lcr(struct vm_exit *);

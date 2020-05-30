@@ -64,6 +64,8 @@ int opentap(char *);
 
 extern struct vmd *env;
 
+extern struct event_base *global_evbase;
+
 static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	vmm_dispatch_parent  },
 };
@@ -82,6 +84,7 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 
 	signal_del(&ps->ps_evsigchld);
 	signal_set(&ps->ps_evsigchld, SIGCHLD, vmm_sighdlr, ps);
+	event_base_set(global_evbase, &ps->ps_evsigchld);
 	signal_add(&ps->ps_evsigchld, NULL);
 
 	/*

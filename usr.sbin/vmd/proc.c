@@ -36,6 +36,8 @@
 
 #include "proc.h"
 
+extern struct event_base *global_evbase;
+
 void	 proc_exec(struct privsep *, struct privsep_proc *, unsigned int, int,
 	    int, char **);
 void	 proc_setup(struct privsep *, struct privsep_proc *, unsigned int);
@@ -185,6 +187,7 @@ proc_connect(struct privsep *ps)
 			imsg_init(&iev->ibuf, ps->ps_pp->pp_pipes[dst][inst]);
 			event_set(&iev->ev, iev->ibuf.fd, iev->events,
 			    iev->handler, iev->data);
+			event_base_set(global_evbase, &iev->ev);
 			event_add(&iev->ev, NULL);
 		}
 	}
@@ -290,6 +293,7 @@ proc_accept(struct privsep *ps, int fd, enum privsep_procid dst,
 	iev = &ps->ps_ievs[dst][n];
 	imsg_init(&iev->ibuf, fd);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
+	event_base_set(global_evbase, &iev->ev);
 	event_add(&iev->ev, NULL);
 }
 
@@ -566,14 +570,21 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("%s: cannot drop privileges", __func__);
 
-	event_init();
+	//event_init();
+	//global_evbase = event_base_new();
 
 	signal_set(&ps->ps_evsigint, SIGINT, proc_sig_handler, p);
+	event_base_set(global_evbase, &ps->ps_evsigint);
 	signal_set(&ps->ps_evsigterm, SIGTERM, proc_sig_handler, p);
+	event_base_set(global_evbase, &ps->ps_evsigterm);
 	signal_set(&ps->ps_evsigchld, SIGCHLD, proc_sig_handler, p);
+	event_base_set(global_evbase, &ps->ps_evsigchld);
 	signal_set(&ps->ps_evsighup, SIGHUP, proc_sig_handler, p);
+	event_base_set(global_evbase, &ps->ps_evsighup);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, proc_sig_handler, p);
+	event_base_set(global_evbase, &ps->ps_evsigpipe);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, proc_sig_handler, p);
+	event_base_set(global_evbase, &ps->ps_evsigusr1);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
@@ -599,7 +610,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	if (run != NULL)
 		run(ps, p, arg);
 
-	event_dispatch();
+	event_base_dispatch(global_evbase);
 
 	proc_shutdown(p);
 }
@@ -714,6 +725,7 @@ imsg_event_add(struct imsgev *iev)
 
 	event_del(&iev->ev);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
+	event_base_set(global_evbase, &iev->ev);
 	event_add(&iev->ev, NULL);
 }
 

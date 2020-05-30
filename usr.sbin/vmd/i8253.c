@@ -24,7 +24,6 @@
 
 #include <event.h>
 #include <pthread.h>
-#include <pthread_np.h>
 #include <string.h>
 #include <stddef.h>
 #include <time.h>
@@ -47,11 +46,17 @@ extern char *__progname;
 struct i8253_channel i8253_channel[3];
 
 static struct event_base *evbase;
-static struct event ev_watchdog;
 static pthread_t i8253_thread;
 static pthread_mutex_t evmutex;
+static struct event ev_start_watchdog;
 
-void i8253_watchdog(int, short, void *);
+void i8253_start_watchdog(int, short, void*);
+
+void
+i8253_start_watchdog(int i, short s, void *arg)
+{
+	log_info("%s: timed out", __func__);
+}
 
 /*
  * i8253_init
@@ -102,6 +107,25 @@ i8253_init(uint32_t vm_id)
 		fatal("%s: failed to create pthread_mutex", __func__);
 	}
 
+}
+
+void
+i8253_init_thread(void)
+{
+	int ret;
+	struct timeval tv;
+
+	timerclear(&tv);
+	tv.tv_sec = 1;
+	event_set(&ev_start_watchdog, -1, EV_PERSIST, i8253_start_watchdog, NULL);
+	event_base_set(evbase, &ev_start_watchdog);
+	ev_add(&evmutex, &ev_start_watchdog, &tv);
+
+	log_info("%s: starting thread with evbase %p", __func__, evbase);
+	ret = pthread_create(&i8253_thread, NULL, event_loop_thread, evbase);
+	if (ret) {
+		fatal("%s: could not create thread", __func__);
+	}
 }
 
 /*
@@ -410,12 +434,6 @@ i8253_restore(int fd, uint32_t vm_id)
 }
 
 void
-i8253_watchdog(int fd, short type, void *arg)
-{
-	log_info("%s: called", __func__);
-}
-
-void
 i8253_stop()
 {
 	int i;
@@ -432,22 +450,8 @@ i8253_stop()
 void
 i8253_start()
 {
-	int i, ret;
-	struct timeval tv;
-
+	int i;
 	for (i = 0; i < 3; i++)
 		if (i8253_channel[i].in_use)
 			i8253_reset(i);
-
-	evtimer_set(&ev_watchdog, i8253_watchdog, NULL);
-	event_base_set(evbase, &ev_watchdog);
-	tv.tv_sec = 10;
-	tv.tv_usec = 0;
-	timer_add(&evmutex, &ev_watchdog, &tv);
-
-	ret = pthread_create(&i8253_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: could not create thread", __func__);
-	}
-	pthread_set_name_np(i8253_thread, "i8253");
 }

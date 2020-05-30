@@ -25,7 +25,6 @@
 #include <errno.h>
 #include <event.h>
 #include <pthread.h>
-#include <pthread_np.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -129,6 +128,19 @@ ns8250_init(int fd, uint32_t vmid)
 	com1_dev.rate_tv.tv_usec = 10000;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
 	event_base_set(evbase, &com1_dev.rate);
+}
+
+void
+ns8250_init_thread(void)
+{
+	int ret;
+
+	log_info("%s: starting thread with evbase %p", __func__, evbase);
+	ret = pthread_create(&ns8250_thread, NULL, event_loop_thread, evbase);
+	if (ret) {
+		fatal("%s: failed to start ns8250 thread: %d", __func__, ret);
+	}
+
 }
 
 static void
@@ -674,12 +686,15 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 	com1_dev.rate_tv.tv_usec = 10000;
 	com1_dev.pause_ct = (com1_dev.baudrate / 8) / 1000 * 10;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
+	event_base_set(evbase, &com1_dev.rate);
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
+	event_base_set(evbase, &com1_dev.event);
 
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
+	event_base_set(evbase, &com1_dev.wake);
 
 	return (0);
 }
@@ -701,16 +716,7 @@ ns8250_stop()
 void
 ns8250_start()
 {
-	int ret;
-
 	ev_add(&evmutex, &com1_dev.event, NULL);
 	ev_add(&evmutex, &com1_dev.wake, NULL);
 	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
-
-	log_info("%s: starting ns8250 thread", __func__);
-	ret = pthread_create(&ns8250_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: failed to start ns8250 thread: %d", __func__, ret);
-	}
-	pthread_set_name_np(ns8250_thread, "ns8250");
 }

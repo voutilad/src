@@ -24,7 +24,6 @@
 
 #include <event.h>
 #include <pthread.h>
-#include <pthread_np.h>
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
@@ -193,6 +192,19 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 	event_base_set(evbase, &rtc.per);
+
+}
+
+void
+mc146818_init_thread(void)
+{
+	int ret;
+
+	log_info("%s: starting thread with evbase %p", __func__, evbase);
+	ret = pthread_create(&mc146818_thread, NULL, event_loop_thread, evbase);
+	if (ret) {
+		fatal("%s: could not create thread", __func__);
+	}
 }
 
 /*
@@ -375,22 +387,15 @@ mc146818_stop()
 	timer_del(&evmutex, &rtc.per);
 	timer_del(&evmutex, &rtc.sec);
 
+	timerclear(&tv);
 	tv.tv_sec = 3;
-	tv.tv_usec = 3;
+	tv.tv_usec = 0;
 	event_base_loopexit(evbase, &tv);
 }
 
 void
 mc146818_start()
 {
-	int ret;
-
 	timer_add(&evmutex, &rtc.sec, &rtc.sec_tv);
 	rtc_reschedule_per();
-
-	ret = pthread_create(&mc146818_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: could not create thread", __func__);
-	}
-	pthread_set_name_np(mc146818_thread, "mc146818");
 }

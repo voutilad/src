@@ -35,7 +35,6 @@
 #include <event.h>
 #include <poll.h>
 #include <pthread.h>
-#include <pthread_np.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2052,6 +2051,18 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 }
 
 void
+virtio_init_thread(void)
+{
+	int ret;
+
+	log_info("%s: starting thread with evbase %p", __func__, evbase);
+	ret = pthread_create(&virtio_thread, NULL, event_loop_thread, evbase);
+	if (ret) {
+		fatal("%s: could not create thread", __func__);
+	}
+}
+
+void
 virtio_shutdown(struct vmd_vm *vm)
 {
 	int i;
@@ -2375,8 +2386,6 @@ virtio_stop(struct vm_create_params *vcp)
 void
 virtio_start(struct vm_create_params *vcp)
 {
-	int ret;
-
 	uint8_t i;
 	for (i = 0; i < vcp->vcp_nnics; i++) {
 		if (ev_add(&evmutex, &vionet[i].event, NULL)) {
@@ -2385,10 +2394,4 @@ virtio_start(struct vm_create_params *vcp)
 			return;
 		}
 	}
-
-	ret = pthread_create(&virtio_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: could not creat thread", __func__);
-	}
-	pthread_set_name_np(virtio_thread, "virtio");
 }

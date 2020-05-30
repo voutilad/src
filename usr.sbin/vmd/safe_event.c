@@ -1,6 +1,7 @@
 #include <event.h>
 #include <pthread.h>
 
+#include "proc.h"
 #include "safe_event.h"
 
 int
@@ -58,8 +59,11 @@ event_loop_thread(void *arg)
 
 	evbase = arg;
 
+	log_info("%s: starting event loop for evbase %p", __func__, evbase);
 	r = event_base_dispatch(evbase);
 	ret = r;
 
+	log_info("%s: event loop for evbase %p exiting (r=%d)",
+	    __func__, evbase, r);
 	return (void *)ret;
 }

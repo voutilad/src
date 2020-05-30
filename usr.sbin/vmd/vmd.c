@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <pwd.h>
 #include <signal.h>
 #include <syslog.h>
@@ -75,6 +76,8 @@ static struct privsep_proc procs[] = {
 	{ "vmm",	PROC_VMM,	vmd_dispatch_vmm, vmm, vmm_shutdown },
 };
 
+pthread_t *global_evmutex;
+struct event_base *global_evbase;
 struct event staggered_start_timer;
 
 /* For the privileged process */
@@ -820,6 +823,9 @@ main(int argc, char **argv)
 	if (title != NULL)
 		ps->ps_title[proc_id] = title;
 
+	event_init();
+	global_evbase = event_base_new();
+
 	/* only the parent returns */
 	proc_init(ps, procs, nitems(procs), env->vmd_debug, argc0, argv,
 	    proc_id);
@@ -831,13 +837,16 @@ main(int argc, char **argv)
 	if (ps->ps_noaction == 0)
 		log_info("startup");
 
-	event_init();
-
 	signal_set(&ps->ps_evsigint, SIGINT, vmd_sighdlr, ps);
+	event_base_set(global_evbase, &ps->ps_evsigint);
 	signal_set(&ps->ps_evsigterm, SIGTERM, vmd_sighdlr, ps);
+	event_base_set(global_evbase, &ps->ps_evsigterm);
 	signal_set(&ps->ps_evsighup, SIGHUP, vmd_sighdlr, ps);
+	event_base_set(global_evbase, &ps->ps_evsighup);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, vmd_sighdlr, ps);
+	event_base_set(global_evbase, &ps->ps_evsigpipe);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, vmd_sighdlr, ps);
+	event_base_set(global_evbase, &ps->ps_evsigusr1);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
@@ -851,7 +860,7 @@ main(int argc, char **argv)
 	if (vmd_configure() == -1)
 		fatalx("configuration failed");
 
-	event_dispatch();
+	event_base_dispatch(global_evbase);
 
 	log_debug("parent exiting");
 
@@ -951,6 +960,8 @@ vmd_configure(void)
 
 	log_debug("%s: starting vms in staggered fashion", __func__);
 	evtimer_set(&staggered_start_timer, start_vm_batch, NULL);
+	event_base_set(global_evbase, &staggered_start_timer);
+
 	/* start first batch */
 	start_vm_batch(0, 0, NULL);
 
@@ -1021,6 +1032,8 @@ vmd_reload(unsigned int reset, const char *filename)
 
 		log_debug("%s: starting vms in staggered fashion", __func__);
 		evtimer_set(&staggered_start_timer, start_vm_batch, NULL);
+		event_base_set(global_evbase, &staggered_start_timer);
+
 		/* start first batch */
 		start_vm_batch(0, 0, NULL);
 

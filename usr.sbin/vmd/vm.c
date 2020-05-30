@@ -107,6 +107,8 @@ extern struct vmd *env;
 
 extern char *__progname;
 
+extern struct event_base *global_evbase;
+
 pthread_mutex_t threadmutex;
 pthread_cond_t threadcond;
 
@@ -365,6 +367,7 @@ start_vm(struct vmd_vm *vm, int fd)
 		nicfds[i] = vm->vm_ifs[i].vif_fd;
 
 	event_init();
+	global_evbase = event_base_new();
 
 	if (vm->vm_state & VM_STATE_RECEIVED) {
 		restore_emulated_hw(vcp, vm->vm_receive_fd, nicfds,
@@ -1022,13 +1025,11 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	ioports_map[TIMER_BASE + TIMER_CNTR1] = vcpu_exit_i8253;
 	ioports_map[TIMER_BASE + TIMER_CNTR2] = vcpu_exit_i8253;
 	ioports_map[PCKBC_AUX] = vcpu_exit_i8253_misc;
-	i8253_start();
 
 	/* Init mc146818 RTC */
 	mc146818_init(vcp->vcp_id, memlo, memhi);
 	ioports_map[IO_RTC] = vcpu_exit_mc146818;
 	ioports_map[IO_RTC + 1] = vcpu_exit_mc146818;
-	mc146818_start();
 
 	/* Init master and slave PICs */
 	i8259_init();
@@ -1043,7 +1044,6 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	ns8250_init(con_fd, vcp->vcp_id);
 	for (i = COM1_DATA; i <= COM1_SCR; i++)
 		ioports_map[i] = vcpu_exit_com;
-	ns8250_start();
 
 	/* Init QEMU fw_cfg interface */
 	fw_cfg_init(vmc);
@@ -1065,7 +1065,6 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 
 	/* Initialize virtio devices */
 	virtio_init(current_vm, child_cdrom, child_disks, child_taps);
-	virtio_start(vcp);
 }
 /*
  * restore_emulated_hw
@@ -1304,6 +1303,11 @@ run_vm(int child_cdrom, int child_disks[][VM_MAX_BASE_PER_DISK],
 		return (ret);
 	}
 
+	mc146818_init_thread();
+	ns8250_init_thread();
+	virtio_init_thread();
+	i8253_init_thread();
+
 	for (;;) {
 		ret = pthread_cond_wait(&threadcond, &threadmutex);
 		if (ret) {
@@ -1352,7 +1356,6 @@ run_vm(int child_cdrom, int child_disks[][VM_MAX_BASE_PER_DISK],
 		/* Some more threads to wait for, start over */
 	}
 
-	i8253_stop();
 	return (ret);
 }
 
@@ -1362,7 +1365,7 @@ event_thread(void *arg)
 	uint8_t *donep = arg;
 	intptr_t ret;
 
-	ret = event_dispatch();
+	ret = event_base_dispatch(global_evbase);
 
 	mutex_lock(&threadmutex);
 	*donep = 1;
