@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <event.h>
 #include <pthread.h>
+#include <pthread_np.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -33,9 +34,14 @@
 #include "vmd.h"
 #include "vmm.h"
 #include "atomicio.h"
+#include "safe_event.h"
 
 extern char *__progname;
 struct ns8250_dev com1_dev;
+
+static struct event_base *evbase;
+static pthread_t ns8250_thread;
+static pthread_mutex_t evmutex;
 
 static void com_rcv_event(int, short, void *);
 static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t);
@@ -65,6 +71,13 @@ void
 ns8250_init(int fd, uint32_t vmid)
 {
 	int ret;
+
+	ret = pthread_mutex_init(&evmutex, NULL);
+	if (ret) {
+		errno = ret;
+		fatal("could not initialize ns8250 event mutex");
+	}
+	evbase = event_base_new();
 
 	memset(&com1_dev, 0, sizeof(com1_dev));
 	ret = pthread_mutex_init(&com1_dev.mutex, NULL);
@@ -98,6 +111,7 @@ ns8250_init(int fd, uint32_t vmid)
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
+	event_base_set(evbase, &com1_dev.event);
 
 	/*
 	 * Whenever fd is writable implies that the pty slave is connected.
@@ -106,12 +120,15 @@ ns8250_init(int fd, uint32_t vmid)
 	 */
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_add(&com1_dev.wake, NULL);
+	event_base_set(evbase, &com1_dev.wake);
+
+	ev_add(&evmutex, &com1_dev.wake, NULL);
 
 	/* Rate limiter for simulating baud rate */
 	timerclear(&com1_dev.rate_tv);
 	com1_dev.rate_tv.tv_usec = 10000;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
+	event_base_set(evbase, &com1_dev.rate);
 }
 
 static void
@@ -120,7 +137,7 @@ com_rcv_event(int fd, short kind, void *arg)
 	mutex_lock(&com1_dev.mutex);
 
 	if (kind == EV_WRITE) {
-		event_add(&com1_dev.event, NULL);
+		ev_add(&evmutex, &com1_dev.event, NULL);
 		mutex_unlock(&com1_dev.mutex);
 		return;
 	}
@@ -201,8 +218,8 @@ com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
 		if (errno != EAGAIN)
 			log_warn("unexpected read error on com device");
 	} else if (sz == 0) {
-		event_del(&com->event);
-		event_add(&com->wake, NULL);
+		ev_del(&evmutex, &com->event);
+		ev_add(&evmutex, &com->wake, NULL);
 		return;
 	} else if (sz != 1 && sz != 2)
 		log_warnx("unexpected read return value %zd on com device", sz);
@@ -258,7 +275,7 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 			/* Limit output rate if needed */
 			if (com1_dev.pause_ct > 0 &&
 			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
-					evtimer_add(&com1_dev.rate,
+				timer_add(&evmutex, &com1_dev.rate,
 					    &com1_dev.rate_tv);
 			} else {
 				/* Set TXRDY and clear "no pending interrupt" */
@@ -670,15 +687,30 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 void
 ns8250_stop()
 {
-	if(event_del(&com1_dev.event))
+	struct timeval tv;
+
+	if (ev_del(&evmutex, &com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
-	evtimer_del(&com1_dev.rate);
+	timer_del(&evmutex, &com1_dev.rate);
+
+	tv.tv_sec = 3;
+	tv.tv_usec = 0;
+	event_base_loopexit(evbase, &tv);
 }
 
 void
 ns8250_start()
 {
-	event_add(&com1_dev.event, NULL);
-	event_add(&com1_dev.wake, NULL);
-	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+	int ret;
+
+	ev_add(&evmutex, &com1_dev.event, NULL);
+	ev_add(&evmutex, &com1_dev.wake, NULL);
+	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
+
+	log_info("%s: starting ns8250 thread", __func__);
+	ret = pthread_create(&ns8250_thread, NULL, event_loop_thread, evbase);
+	if (ret) {
+		fatal("%s: failed to start ns8250 thread: %d", __func__, ret);
+	}
+	pthread_set_name_np(ns8250_thread, "ns8250");
 }

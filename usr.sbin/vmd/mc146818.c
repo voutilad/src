@@ -23,6 +23,8 @@
 #include <machine/vmmvar.h>
 
 #include <event.h>
+#include <pthread.h>
+#include <pthread_np.h>
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
@@ -34,6 +36,7 @@
 #include "virtio.h"
 #include "vmm.h"
 #include "atomicio.h"
+#include "safe_event.h"
 
 #define MC_DIVIDER_MASK 0xe0
 #define MC_RATE_MASK 0xf
@@ -49,6 +52,10 @@
 #define NVRAM_SIZE 0x60
 
 #define TOBCD(x)	(((x) / 10 * 16) + ((x) % 10))
+
+static struct event_base *evbase;
+static pthread_t mc146818_thread;
+static pthread_mutex_t evmutex;
 
 struct mc146818 {
 	time_t now;
@@ -147,6 +154,8 @@ rtc_fireper(int fd, short type, void *arg)
 void
 mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 {
+	int ret;
+
 	memset(&rtc, 0, sizeof(rtc));
 	time(&rtc.now);
 
@@ -171,10 +180,19 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 
 	timerclear(&rtc.per_tv);
 
+	ret = pthread_mutex_init(&evmutex, NULL);
+	if (ret) {
+		fatal("%s: failed to create pthread_mutex", __func__);
+	}
+
+	evbase = event_base_new();
+
 	evtimer_set(&rtc.sec, rtc_fire1, NULL);
-	evtimer_add(&rtc.sec, &rtc.sec_tv);
+	event_base_set(evbase, &rtc.sec);
+	timer_add(&evmutex, &rtc.sec, &rtc.sec_tv);
 
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
+	event_base_set(evbase, &rtc.per);
 }
 
 /*
@@ -194,9 +212,9 @@ rtc_reschedule_per(void)
 		us = (1.0 / rate) * 1000000;
 		rtc.per_tv.tv_usec = us;
 		if (evtimer_pending(&rtc.per, NULL))
-			evtimer_del(&rtc.per);
+			timer_del(&evmutex, &rtc.per);
 
-		evtimer_add(&rtc.per, &rtc.per_tv);
+		timer_add(&evmutex, &rtc.per, &rtc.per_tv);
 	}
 }
 
@@ -341,20 +359,38 @@ mc146818_restore(int fd, uint32_t vm_id)
 	memset(&rtc.sec, 0, sizeof(struct event));
 	memset(&rtc.per, 0, sizeof(struct event));
 	evtimer_set(&rtc.sec, rtc_fire1, NULL);
+	event_base_set(evbase, &rtc.sec);
+
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
+	event_base_set(evbase, &rtc.per);
+
 	return (0);
 }
 
 void
 mc146818_stop()
 {
-	evtimer_del(&rtc.per);
-	evtimer_del(&rtc.sec);
+	struct timeval tv;
+
+	timer_del(&evmutex, &rtc.per);
+	timer_del(&evmutex, &rtc.sec);
+
+	tv.tv_sec = 3;
+	tv.tv_usec = 3;
+	event_base_loopexit(evbase, &tv);
 }
 
 void
 mc146818_start()
 {
-	evtimer_add(&rtc.sec, &rtc.sec_tv);
+	int ret;
+
+	timer_add(&evmutex, &rtc.sec, &rtc.sec_tv);
 	rtc_reschedule_per();
+
+	ret = pthread_create(&mc146818_thread, NULL, event_loop_thread, evbase);
+	if (ret) {
+		fatal("%s: could not create thread", __func__);
+	}
+	pthread_set_name_np(mc146818_thread, "mc146818");
 }

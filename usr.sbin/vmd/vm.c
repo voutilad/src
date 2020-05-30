@@ -1022,11 +1022,13 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	ioports_map[TIMER_BASE + TIMER_CNTR1] = vcpu_exit_i8253;
 	ioports_map[TIMER_BASE + TIMER_CNTR2] = vcpu_exit_i8253;
 	ioports_map[PCKBC_AUX] = vcpu_exit_i8253_misc;
+	i8253_start();
 
 	/* Init mc146818 RTC */
 	mc146818_init(vcp->vcp_id, memlo, memhi);
 	ioports_map[IO_RTC] = vcpu_exit_mc146818;
 	ioports_map[IO_RTC + 1] = vcpu_exit_mc146818;
+	mc146818_start();
 
 	/* Init master and slave PICs */
 	i8259_init();
@@ -1041,6 +1043,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	ns8250_init(con_fd, vcp->vcp_id);
 	for (i = COM1_DATA; i <= COM1_SCR; i++)
 		ioports_map[i] = vcpu_exit_com;
+	ns8250_start();
 
 	/* Init QEMU fw_cfg interface */
 	fw_cfg_init(vmc);
@@ -1062,6 +1065,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 
 	/* Initialize virtio devices */
 	virtio_init(current_vm, child_cdrom, child_disks, child_taps);
+	virtio_start(vcp);
 }
 /*
  * restore_emulated_hw
@@ -1348,6 +1352,7 @@ run_vm(int child_cdrom, int child_disks[][VM_MAX_BASE_PER_DISK],
 		/* Some more threads to wait for, start over */
 	}
 
+	i8253_stop();
 	return (ret);
 }
 

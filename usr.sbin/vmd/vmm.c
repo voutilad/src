@@ -198,7 +198,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 				/*
 				 * Request reboot but mark the VM as shutting
 				 * down. This way we can terminate the VM after
-				 * the triple fault instead of reboot and 
+				 * the triple fault instead of reboot and
 				 * avoid being stuck in the ACPI-less powerdown
 				 * ("press any key to reboot") of the VM.
 				 */
