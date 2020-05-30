@@ -823,7 +823,6 @@ main(int argc, char **argv)
 	if (title != NULL)
 		ps->ps_title[proc_id] = title;
 
-	event_init();
 	global_evbase = event_base_new();
 
 	/* only the parent returns */

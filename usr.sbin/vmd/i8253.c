@@ -116,7 +116,7 @@ i8253_init_thread(void)
 	struct timeval tv;
 
 	timerclear(&tv);
-	tv.tv_sec = 1;
+	tv.tv_sec = 60 * 60;
 	event_set(&ev_start_watchdog, -1, EV_PERSIST, i8253_start_watchdog, NULL);
 	event_base_set(evbase, &ev_start_watchdog);
 	ev_add(&evmutex, &ev_start_watchdog, &tv);

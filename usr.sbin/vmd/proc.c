@@ -637,7 +637,7 @@ proc_dispatch(int fd, short event, void *arg)
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
 			event_del(&iev->ev);
-			event_loopexit(NULL);
+			event_base_loopexit(global_evbase, NULL);
 			return;
 		}
 	}
@@ -648,7 +648,7 @@ proc_dispatch(int fd, short event, void *arg)
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
 			event_del(&iev->ev);
-			event_loopexit(NULL);
+			event_base_loopexit(global_evbase, NULL);
 			return;
 		}
 	}
