@@ -46,17 +46,16 @@ extern char *__progname;
 struct i8253_channel i8253_channel[3];
 
 static struct event_base *evbase;
+static struct event watchdog;
+static struct timeval watchdog_tv;
+static struct timeval watchdog_quick_tv;
 static pthread_t i8253_thread;
 static pthread_mutex_t evmutex;
-static struct event ev_start_watchdog;
 
 static void
-i8253_start_watchdog(int i, short s, void *arg)
+i8253_watchdog(int i, short s, void *arg)
 {
-	struct timeval tv;
-	log_info("%s: timed out", __func__);
-	timerclear(&tv);
-	tv.tv_sec = 1;
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
 }
 
 /*
@@ -103,6 +102,16 @@ i8253_init(uint32_t vm_id)
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
 	event_base_set(evbase, &i8253_channel[2].timer);
 
+	/* Configure watchdog timevals and timer */
+	timerclear(&watchdog_tv);
+	watchdog_tv.tv_sec = 1;
+	timerclear(&watchdog_quick_tv);
+	watchdog_tv.tv_sec = 1;
+
+	evtimer_set(&watchdog, i8253_watchdog, NULL);
+	event_base_set(evbase, &watchdog);
+	timer_add(&evmutex, &watchdog, &watchdog_quick_tv);
+
 	ret = pthread_mutex_init(&evmutex, NULL);
 	if (ret) {
 		fatal("%s: failed to create pthread_mutex", __func__);
@@ -114,16 +123,6 @@ void
 i8253_init_thread(void)
 {
 	int ret;
-	struct timeval tv;
-
-	// We need an event to make sure the event loop doesn't run dry before
-	// the i8253 can be used. For now let's try a single timer event.
-	timerclear(&tv);
-	tv.tv_sec = 1;
-
-	evtimer_set(&ev_start_watchdog, i8253_start_watchdog, NULL);
-	event_base_set(evbase, &ev_start_watchdog);
-	timer_add(&evmutex, &ev_start_watchdog, &tv);
 
 	log_info("%s: starting thread with evbase %p", __func__, evbase);
 	ret = pthread_create(&i8253_thread, NULL, event_loop_thread, evbase);
@@ -418,7 +417,7 @@ i8253_dump(int fd)
 int
 i8253_restore(int fd, uint32_t vm_id)
 {
-	int i;
+	int i, ret;
 	log_debug("%s: restoring PIT", __func__);
 	if (atomicio(read, fd, &i8253_channel, sizeof(i8253_channel)) !=
 	    sizeof(i8253_channel)) {
@@ -426,12 +425,20 @@ i8253_restore(int fd, uint32_t vm_id)
 		return (-1);
 	}
 
-	// TODO: handle event_base
+	evbase = event_base_new();
+
+	ret = pthread_mutex_init(&evmutex, NULL);
+	if (ret) {
+		fatal("%s: failed to create pthread_mutex", __func__);
+	}
+
 	for (i = 0; i < 3; i++) {
 		memset(&i8253_channel[i].timer, 0, sizeof(struct event));
 		i8253_channel[i].vm_id = vm_id;
 		evtimer_set(&i8253_channel[i].timer, i8253_fire,
 		    &i8253_channel[i]);
+		event_base_set(evbase, &i8253_channel[i].timer);
+
 		i8253_reset(i);
 	}
 	return (0);
@@ -443,8 +450,6 @@ i8253_stop()
 	int i;
 	for (i = 0; i < 3; i++)
 		timer_del(&evmutex, &i8253_channel[i].timer);
-
-	event_base_loopexit(evbase, NULL);
 }
 
 void
@@ -454,4 +459,9 @@ i8253_start()
 	for (i = 0; i < 3; i++)
 		if (i8253_channel[i].in_use)
 			i8253_reset(i);
+
+	// We need a shorter watchdog for the next heartbeat.
+	// NOTE: I DO NOT UNDERSTAND WHY!
+	timer_del(&evmutex, &watchdog);
+	timer_add(&evmutex, &watchdog, &watchdog_quick_tv);
 }

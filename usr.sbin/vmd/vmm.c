@@ -52,6 +52,7 @@
 
 #include "vmd.h"
 #include "vmm.h"
+#include "safe_event.h"
 
 void vmm_sighdlr(int, short, void *);
 int vmm_start_vm(struct imsg *, uint32_t *, pid_t *);
@@ -64,6 +65,7 @@ int opentap(char *);
 
 extern struct vmd *env;
 
+extern pthread_mutex_t global_evmutex;
 extern struct event_base *global_evbase;
 
 static struct privsep_proc procs[] = {
@@ -506,7 +508,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 			fatal("%s: imsg_read", __func__);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
-			event_del(&iev->ev);
+			ev_del(&global_evmutex, &iev->ev);
 			return;
 		}
 	}
@@ -516,7 +518,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 			fatal("%s: msgbuf_write fd %d", __func__, ibuf->fd);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
-			event_del(&iev->ev);
+			ev_del(&global_evmutex, &iev->ev);
 			return;
 		}
 	}

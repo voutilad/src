@@ -49,6 +49,7 @@
 #include "proc.h"
 #include "atomicio.h"
 #include "vmd.h"
+#include "safe_event.h"
 
 __dead void usage(void);
 
@@ -76,7 +77,7 @@ static struct privsep_proc procs[] = {
 	{ "vmm",	PROC_VMM,	vmd_dispatch_vmm, vmm, vmm_shutdown },
 };
 
-pthread_t *global_evmutex;
+pthread_mutex_t global_evmutex;
 struct event_base *global_evbase;
 struct event staggered_start_timer;
 
@@ -825,6 +826,10 @@ main(int argc, char **argv)
 
 	global_evbase = event_base_new();
 
+	if (pthread_mutex_init(&global_evmutex, NULL)) {
+		fatal("can't initialize global pthread_mutex");
+	}
+
 	/* only the parent returns */
 	proc_init(ps, procs, nitems(procs), env->vmd_debug, argc0, argv,
 	    proc_id);
@@ -883,7 +888,7 @@ start_vm_batch(int fd, short type, void *args)
 		}
 		i++;
 		if (i > env->vmd_cfg.parallelism) {
-			evtimer_add(&staggered_start_timer,
+			timer_add(&global_evmutex, &staggered_start_timer,
 			    &env->vmd_cfg.delay);
 			break;
 		}
@@ -1156,7 +1161,7 @@ vm_stop(struct vmd_vm *vm, int keeptty, const char *caller)
 	user_put(vm->vm_user);
 
 	if (vm->vm_iev.ibuf.fd != -1) {
-		event_del(&vm->vm_iev.ev);
+		ev_del(&global_evmutex, &vm->vm_iev.ev);
 		close(vm->vm_iev.ibuf.fd);
 	}
 	for (i = 0; i < VMM_MAX_DISKS_PER_VM; i++) {

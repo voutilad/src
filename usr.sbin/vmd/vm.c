@@ -446,6 +446,7 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 		case IMSG_VMDOP_PAUSE_VM:
 			vmr.vmr_result = 0;
 			vmr.vmr_id = vm->vm_vmid;
+			log_info("%s: got pause request for vmid %d", __func__, vm->vm_vmid);
 			pause_vm(&vm->vm_params.vmc_params);
 			imsg_compose_event(&vm->vm_iev,
 			    IMSG_VMDOP_PAUSE_VM_RESPONSE,
@@ -777,9 +778,13 @@ pause_vm(struct vm_create_params *vcp)
 	}
 
 	i8253_stop();
+	log_info("%s: i8253 stopped", __func__);
 	mc146818_stop();
+	log_info("%s: mc14618 stopped", __func__);
 	ns8250_stop();
+	log_info("%s: ns8250 stopped", __func__);
 	virtio_stop(vcp);
+	log_info("%s: virtio stopped", __func__);
 }
 
 void
@@ -801,9 +806,13 @@ unpause_vm(struct vm_create_params *vcp)
 	}
 
 	i8253_start();
+	log_info("%s: i8253 restarted", __func__);
 	mc146818_start();
+	log_info("%s: mc146818 restarted", __func__);
 	ns8250_start();
+	log_info("%s: ns8250 restarted", __func__);
 	virtio_start(vcp);
+	log_info("%s: virtio restarted", __func__);
 }
 
 /*
@@ -1303,13 +1312,10 @@ run_vm(int child_cdrom, int child_disks[][VM_MAX_BASE_PER_DISK],
 	/* XXX: this logic could move elsewhere...need some initial events
 	 * configured before we start the event loops.
 	 */
-	i8253_start();
-	ns8250_start();
-
-	mc146818_init_thread();
-	ns8250_init_thread();
-	virtio_init_thread();
 	i8253_init_thread();
+	mc146818_init_thread();
+	virtio_init_thread();
+	ns8250_init_thread();
 
 	for (;;) {
 		ret = pthread_cond_wait(&threadcond, &threadmutex);

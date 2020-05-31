@@ -39,6 +39,8 @@ extern char *__progname;
 struct ns8250_dev com1_dev;
 
 static struct event_base *evbase;
+static struct event watchdog;
+static struct timeval watchdog_tv;
 static pthread_t ns8250_thread;
 static pthread_mutex_t evmutex;
 
@@ -60,10 +62,21 @@ static void
 ratelimit(int fd, short type, void *arg)
 {
 	/* Set TXRDY and clear "no pending interrupt" */
+	mutex_lock(&com1_dev.mutex);
+
 	com1_dev.regs.iir |= IIR_TXRDY;
 	com1_dev.regs.iir &= ~IIR_NOPEND;
 	vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
 	vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
+
+	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
+	mutex_unlock(&com1_dev.mutex);
+}
+
+static void
+ns8250_watchdog(int fd, short type, void *arg)
+{
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
 }
 
 void
@@ -126,6 +139,17 @@ ns8250_init(int fd, uint32_t vmid)
 	com1_dev.rate_tv.tv_usec = 10000;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
 	event_base_set(evbase, &com1_dev.rate);
+
+	/* Watchdog for keeping the event pump running */
+	timerclear(&watchdog_tv);
+	watchdog_tv.tv_sec = 30;
+	evtimer_set(&watchdog, ns8250_watchdog, NULL);
+	event_base_set(evbase, &watchdog);
+
+	ev_add(&evmutex, &com1_dev.event, NULL);
+	ev_add(&evmutex, &com1_dev.wake, NULL);
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
+	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
 }
 
 void
@@ -282,9 +306,15 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		com1_dev.byte_out++;
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
-				/* Set TXRDY and clear "no pending interrupt" */
-				com1_dev.regs.iir |= IIR_TXRDY;
-				com1_dev.regs.iir &= ~IIR_NOPEND;
+			com1_dev.regs.iir |= IIR_TXRDY;
+			com1_dev.regs.iir &= ~IIR_NOPEND;
+
+			/* Limit output rate if needed */
+			if (com1_dev.pause_ct > 0 &&
+			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
+				vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
+				vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
+			}
 		}
 	} else {
 		if (com1_dev.regs.lcr & LCR_DLAB) {
@@ -695,9 +725,7 @@ ns8250_stop()
 {
 	if (ev_del(&evmutex, &com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
-	timer_del(&evmutex, &com1_dev.rate);
-
-	event_base_loopexit(evbase, NULL);
+	//timer_del(&evmutex, &com1_dev.rate);
 }
 
 void
@@ -705,5 +733,5 @@ ns8250_start()
 {
 	ev_add(&evmutex, &com1_dev.event, NULL);
 	ev_add(&evmutex, &com1_dev.wake, NULL);
-	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
+	//timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
 }

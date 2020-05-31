@@ -53,6 +53,8 @@
 #define TOBCD(x)	(((x) / 10 * 16) + ((x) % 10))
 
 static struct event_base *evbase;
+static struct event watchdog;
+static struct timeval watchdog_tv;
 static pthread_t mc146818_thread;
 static pthread_mutex_t evmutex;
 
@@ -116,7 +118,7 @@ rtc_fire1(int fd, short type, void *arg)
 		    "resync", __func__, (rtc.now - old));
 		vmmci_ctl(VMMCI_SYNCRTC);
 	}
-	evtimer_add(&rtc.sec, &rtc.sec_tv);
+	ev_add(&evmutex, &rtc.sec, &rtc.sec_tv);
 }
 
 /*
@@ -137,7 +139,13 @@ rtc_fireper(int fd, short type, void *arg)
 	vcpu_assert_pic_irq((ptrdiff_t)arg, 0, 8);
 	vcpu_deassert_pic_irq((ptrdiff_t)arg, 0, 8);
 
-	evtimer_add(&rtc.per, &rtc.per_tv);
+	ev_add(&evmutex, &rtc.per, &rtc.per_tv);
+}
+
+static void
+mc146818_watchdog(int fd, short type, void *arg)
+{
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
 }
 
 /*
@@ -193,6 +201,12 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 	event_base_set(evbase, &rtc.per);
 
+	/* Watchdog */
+	timerclear(&watchdog_tv);
+	watchdog_tv.tv_sec = 30;
+	evtimer_set(&watchdog, mc146818_watchdog, NULL);
+	event_base_set(evbase, &watchdog);
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
 }
 
 void
@@ -223,7 +237,7 @@ rtc_reschedule_per(void)
 		rate = 32768 >> ((rtc.regs[MC_REGA] & MC_RATE_MASK) - 1);
 		us = (1.0 / rate) * 1000000;
 		rtc.per_tv.tv_usec = us;
-		if (evtimer_pending(&rtc.per, NULL))
+		if (timer_pending(&evmutex, &rtc.per, NULL))
 			timer_del(&evmutex, &rtc.per);
 
 		timer_add(&evmutex, &rtc.per, &rtc.per_tv);
@@ -384,8 +398,6 @@ mc146818_stop()
 {
 	timer_del(&evmutex, &rtc.per);
 	timer_del(&evmutex, &rtc.sec);
-
-	event_base_loopexit(evbase, NULL);
 }
 
 void

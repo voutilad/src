@@ -57,6 +57,8 @@ struct vioscsi_dev *vioscsi;
 struct vmmci_dev vmmci;
 
 static struct event_base *evbase;
+static struct event watchdog;
+static struct timeval watchdog_tv;
 static pthread_t virtio_thread;
 static pthread_mutex_t evmutex;
 
@@ -73,6 +75,12 @@ int nr_vioblk;
 
 #define RXQ	0
 #define TXQ	1
+
+static void
+virtio_watchdog(int fd, short type, void *arg)
+{
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
+}
 
 const char *
 vioblk_cmd_name(uint32_t type)
@@ -2048,6 +2056,13 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
 	event_base_set(evbase, &vmmci.timeout);
+
+	/* Watchdog setup */
+	timerclear(&watchdog_tv);
+	watchdog_tv.tv_sec = 30;
+	evtimer_set(&watchdog, virtio_watchdog, NULL);
+	event_base_set(evbase, &watchdog);
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
 }
 
 void
@@ -2376,8 +2391,6 @@ virtio_stop(struct vm_create_params *vcp)
 			return;
 		}
 	}
-
-	event_base_loopexit(evbase, NULL);
 }
 
 void

@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -36,9 +37,11 @@
 
 #include "proc.h"
 #include "vmd.h"
+#include "safe_event.h"
 
 #define	CONTROL_BACKLOG	5
 
+extern pthread_mutex_t global_evmutex;
 extern struct event_base *global_evbase;
 
 struct ctl_connlist ctl_conns;
@@ -201,7 +204,7 @@ control_listen(struct control_sock *cs)
 	event_set(&cs->cs_ev, cs->cs_fd, EV_READ,
 	    control_accept, cs);
 	event_base_set(global_evbase, &cs->cs_ev);
-	event_add(&cs->cs_ev, NULL);
+	ev_add(&global_evmutex, &cs->cs_ev, NULL);
 	evtimer_set(&cs->cs_evt, control_accept, cs);
 	event_base_set(global_evbase, &cs->cs_evt);
 
@@ -218,7 +221,7 @@ control_accept(int listenfd, short event, void *arg)
 	struct sockaddr_un	 sun;
 	struct ctl_conn		*c;
 
-	event_add(&cs->cs_ev, NULL);
+	ev_add(&global_evmutex, &cs->cs_ev, NULL);
 	if ((event & EV_TIMEOUT))
 		return;
 
@@ -232,8 +235,8 @@ control_accept(int listenfd, short event, void *arg)
 		if (errno == ENFILE || errno == EMFILE) {
 			struct timeval evtpause = { 1, 0 };
 
-			event_del(&cs->cs_ev);
-			evtimer_add(&cs->cs_evt, &evtpause);
+			ev_del(&global_evmutex, &cs->cs_ev);
+			timer_add(&global_evmutex, &cs->cs_evt, &evtpause);
 		} else if (errno != EWOULDBLOCK && errno != EINTR &&
 		    errno != ECONNABORTED)
 			log_warn("%s: accept", __func__);
@@ -261,7 +264,7 @@ control_accept(int listenfd, short event, void *arg)
 	event_set(&c->iev.ev, c->iev.ibuf.fd, c->iev.events,
 	    c->iev.handler, c->iev.data);
 	event_base_set(global_evbase, &c->iev.ev);
-	event_add(&c->iev.ev, NULL);
+	ev_add(&global_evmutex, &c->iev.ev, NULL);
 
 	TAILQ_INSERT_TAIL(&ctl_conns, c, entry);
 }
@@ -292,13 +295,13 @@ control_close(int fd, struct control_sock *cs)
 	msgbuf_clear(&c->iev.ibuf.w);
 	TAILQ_REMOVE(&ctl_conns, c, entry);
 
-	event_del(&c->iev.ev);
+	ev_del(&global_evmutex, &c->iev.ev);
 	close(c->iev.ibuf.fd);
 
 	/* Some file descriptors are available again. */
-	if (evtimer_pending(&cs->cs_evt, NULL)) {
-		evtimer_del(&cs->cs_evt);
-		event_add(&cs->cs_ev, NULL);
+	if (timer_pending(&global_evmutex, &cs->cs_evt, NULL)) {
+		timer_del(&global_evmutex, &cs->cs_evt);
+		ev_add(&global_evmutex, &cs->cs_ev, NULL);
 	}
 
 	free(c);
