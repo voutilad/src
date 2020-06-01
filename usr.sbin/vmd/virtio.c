@@ -2070,7 +2070,7 @@ virtio_init_thread(void)
 {
 	int ret;
 
-	log_info("%s: starting thread with evbase %p", __func__, evbase);
+	log_debug("%s: starting thread with evbase %p", __func__, evbase);
 	ret = pthread_create(&virtio_thread, NULL, event_loop_thread, evbase);
 	if (ret) {
 		fatal("%s: could not create thread", __func__);

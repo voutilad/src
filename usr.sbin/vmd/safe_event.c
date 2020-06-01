@@ -59,7 +59,6 @@ event_loop_thread(void *arg)
 
 	evbase = arg;
 
-	log_info("%s: starting event loop for evbase %p", __func__, evbase);
 	r = event_base_dispatch(evbase);
 	ret = r;
 

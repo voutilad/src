@@ -49,7 +49,6 @@
 #include "proc.h"
 #include "atomicio.h"
 #include "vmd.h"
-#include "safe_event.h"
 
 __dead void usage(void);
 
@@ -888,7 +887,7 @@ start_vm_batch(int fd, short type, void *args)
 		}
 		i++;
 		if (i > env->vmd_cfg.parallelism) {
-			timer_add(&global_evmutex, &staggered_start_timer,
+			evtimer_add(&staggered_start_timer,
 			    &env->vmd_cfg.delay);
 			break;
 		}
@@ -1161,7 +1160,7 @@ vm_stop(struct vmd_vm *vm, int keeptty, const char *caller)
 	user_put(vm->vm_user);
 
 	if (vm->vm_iev.ibuf.fd != -1) {
-		ev_del(&global_evmutex, &vm->vm_iev.ev);
+		event_del(&vm->vm_iev.ev);
 		close(vm->vm_iev.ibuf.fd);
 	}
 	for (i = 0; i < VMM_MAX_DISKS_PER_VM; i++) {

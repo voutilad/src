@@ -47,32 +47,6 @@ static pthread_mutex_t evmutex;
 static void com_rcv_event(int, short, void *);
 static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t);
 
-/*
- * ratelimit
- *
- * Timeout callback function used when we have to slow down the output rate
- * from the emulated serial port.
- *
- * Parameters:
- *  fd: unused
- *  type: unused
- *  arg: unused
- */
-static void
-ratelimit(int fd, short type, void *arg)
-{
-	/* Set TXRDY and clear "no pending interrupt" */
-	mutex_lock(&com1_dev.mutex);
-
-	com1_dev.regs.iir |= IIR_TXRDY;
-	com1_dev.regs.iir &= ~IIR_NOPEND;
-	vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
-	vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
-
-	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
-	mutex_unlock(&com1_dev.mutex);
-}
-
 static void
 ns8250_watchdog(int fd, short type, void *arg)
 {
@@ -134,12 +108,6 @@ ns8250_init(int fd, uint32_t vmid)
 	    com_rcv_event, (void *)(intptr_t)vmid);
 	event_base_set(evbase, &com1_dev.wake);
 
-	/* Rate limiter for simulating baud rate */
-	timerclear(&com1_dev.rate_tv);
-	com1_dev.rate_tv.tv_usec = 10000;
-	evtimer_set(&com1_dev.rate, ratelimit, NULL);
-	event_base_set(evbase, &com1_dev.rate);
-
 	/* Watchdog for keeping the event pump running */
 	timerclear(&watchdog_tv);
 	watchdog_tv.tv_sec = 30;
@@ -149,7 +117,6 @@ ns8250_init(int fd, uint32_t vmid)
 	ev_add(&evmutex, &com1_dev.event, NULL);
 	ev_add(&evmutex, &com1_dev.wake, NULL);
 	timer_add(&evmutex, &watchdog, &watchdog_tv);
-	timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
 }
 
 void
@@ -157,7 +124,7 @@ ns8250_init_thread(void)
 {
 	int ret;
 
-	log_info("%s: starting thread with evbase %p", __func__, evbase);
+	log_debug("%s: starting thread with evbase %p", __func__, evbase);
 	ret = pthread_create(&ns8250_thread, NULL, event_loop_thread, evbase);
 	if (ret) {
 		fatal("%s: failed to start ns8250 thread: %d", __func__, ret);
@@ -704,10 +671,7 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 	com1_dev.byte_out = 0;
 	com1_dev.regs.divlo = 1;
 	com1_dev.baudrate = 115200;
-	com1_dev.rate_tv.tv_usec = 10000;
 	com1_dev.pause_ct = (com1_dev.baudrate / 8) / 1000 * 10;
-	evtimer_set(&com1_dev.rate, ratelimit, NULL);
-	event_base_set(evbase, &com1_dev.rate);
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
@@ -725,7 +689,6 @@ ns8250_stop()
 {
 	if (ev_del(&evmutex, &com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
-	//timer_del(&evmutex, &com1_dev.rate);
 }
 
 void
@@ -733,5 +696,4 @@ ns8250_start()
 {
 	ev_add(&evmutex, &com1_dev.event, NULL);
 	ev_add(&evmutex, &com1_dev.wake, NULL);
-	//timer_add(&evmutex, &com1_dev.rate, &com1_dev.rate_tv);
 }

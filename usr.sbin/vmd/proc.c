@@ -36,9 +36,7 @@
 #include <imsg.h>
 
 #include "proc.h"
-#include "safe_event.h"
 
-extern pthread_mutex_t global_evmutex;
 extern struct event_base *global_evbase;
 
 void	 proc_exec(struct privsep *, struct privsep_proc *, unsigned int, int,
@@ -163,6 +161,7 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 			default:
 				/* Close child end. */
 				close(fd);
+				event_reinit(global_evbase);
 				break;
 			}
 		}
@@ -191,7 +190,7 @@ proc_connect(struct privsep *ps)
 			event_set(&iev->ev, iev->ibuf.fd, iev->events,
 			    iev->handler, iev->data);
 			event_base_set(global_evbase, &iev->ev);
-			ev_add(&global_evmutex, &iev->ev, NULL);
+			event_add(&iev->ev, NULL);
 		}
 	}
 
@@ -297,7 +296,7 @@ proc_accept(struct privsep *ps, int fd, enum privsep_procid dst,
 	imsg_init(&iev->ibuf, fd);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
 	event_base_set(global_evbase, &iev->ev);
-	ev_add(&global_evmutex, &iev->ev, NULL);
+	event_add(&iev->ev, NULL);
 }
 
 void
@@ -479,7 +478,7 @@ proc_close(struct privsep *ps)
 				continue;
 
 			/* Cancel the fd, close and invalidate the fd */
-			ev_del(&global_evmutex, &(ps->ps_ievs[dst][n].ev));
+			event_del(&(ps->ps_ievs[dst][n].ev));
 			imsg_clear(&(ps->ps_ievs[dst][n].ibuf));
 			close(pp->pp_pipes[dst][n]);
 			pp->pp_pipes[dst][n] = -1;
@@ -639,7 +638,7 @@ proc_dispatch(int fd, short event, void *arg)
 			fatal("%s: imsg_read", __func__);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
-			ev_del(&global_evmutex, &iev->ev);
+			event_del(&iev->ev);
 			event_base_loopexit(global_evbase, NULL);
 			return;
 		}
@@ -650,7 +649,7 @@ proc_dispatch(int fd, short event, void *arg)
 			fatal("%s: msgbuf_write", __func__);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
-			ev_del(&global_evmutex, &iev->ev);
+			event_del(&iev->ev);
 			event_base_loopexit(global_evbase, NULL);
 			return;
 		}
@@ -726,10 +725,10 @@ imsg_event_add(struct imsgev *iev)
 	if (iev->ibuf.w.queued)
 		iev->events |= EV_WRITE;
 
-	ev_del(&global_evmutex, &iev->ev);
+	event_del(&iev->ev);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
 	event_base_set(global_evbase, &iev->ev);
-	ev_add(&global_evmutex, &iev->ev, NULL);
+	event_add(&iev->ev, NULL);
 }
 
 int

@@ -52,7 +52,6 @@
 
 #include "vmd.h"
 #include "vmm.h"
-#include "safe_event.h"
 
 void vmm_sighdlr(int, short, void *);
 int vmm_start_vm(struct imsg *, uint32_t *, pid_t *);
@@ -84,10 +83,12 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	if (config_init(ps->ps_env) == -1)
 		fatal("failed to initialize configuration");
 
+	pthread_mutex_lock(&global_evmutex);
 	signal_del(&ps->ps_evsigchld);
 	signal_set(&ps->ps_evsigchld, SIGCHLD, vmm_sighdlr, ps);
 	event_base_set(global_evbase, &ps->ps_evsigchld);
 	signal_add(&ps->ps_evsigchld, NULL);
+	pthread_mutex_unlock(&global_evmutex);
 
 	/*
 	 * pledge in the vmm process:
@@ -508,7 +509,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 			fatal("%s: imsg_read", __func__);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
-			ev_del(&global_evmutex, &iev->ev);
+			event_del(&iev->ev);
 			return;
 		}
 	}
@@ -518,7 +519,7 @@ vmm_dispatch_vm(int fd, short event, void *arg)
 			fatal("%s: msgbuf_write fd %d", __func__, ibuf->fd);
 		if (n == 0) {
 			/* this pipe is dead, so remove the event handler */
-			ev_del(&global_evmutex, &iev->ev);
+			event_del(&iev->ev);
 			return;
 		}
 	}
@@ -714,6 +715,8 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id, pid_t *pid)
 		/* Child */
 		close(fds[0]);
 		close(PROC_PARENT_SOCK_FILENO);
+
+		event_reinit(global_evbase);
 
 		ret = start_vm(vm, fds[1]);
 

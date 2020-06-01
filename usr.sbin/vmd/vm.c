@@ -108,6 +108,7 @@ extern struct vmd *env;
 extern char *__progname;
 
 extern struct event_base *global_evbase;
+extern pthread_mutex_t global_evmutex;
 
 pthread_mutex_t threadmutex;
 pthread_cond_t threadcond;
@@ -403,6 +404,8 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 	ssize_t			 n;
 	int			 verbose;
 
+	pthread_mutex_lock(&global_evmutex);
+
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("%s: imsg_read", __func__);
@@ -424,7 +427,7 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 			break;
 
 #if DEBUG > 1
-		log_debug("%s: got imsg %d from %s",
+		log_info("%s: got imsg %d from %s",
 		    __func__, imsg.hdr.type,
 		    vm->vm_params.vmc_params.vcp_name);
 #endif
@@ -446,7 +449,6 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 		case IMSG_VMDOP_PAUSE_VM:
 			vmr.vmr_result = 0;
 			vmr.vmr_id = vm->vm_vmid;
-			log_info("%s: got pause request for vmid %d", __func__, vm->vm_vmid);
 			pause_vm(&vm->vm_params.vmc_params);
 			imsg_compose_event(&vm->vm_iev,
 			    IMSG_VMDOP_PAUSE_VM_RESPONSE,
@@ -483,6 +485,8 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 		imsg_free(&imsg);
 	}
 	imsg_event_add(iev);
+
+	pthread_mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -493,6 +497,8 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 __dead void
 vm_shutdown(unsigned int cmd)
 {
+	pthread_mutex_lock(&global_evmutex);
+
 	switch (cmd) {
 	case VMMCI_NONE:
 	case VMMCI_SHUTDOWN:
@@ -507,6 +513,8 @@ vm_shutdown(unsigned int cmd)
 		fatalx("invalid vm ctl command: %d", cmd);
 	}
 	imsg_flush(&current_vm->vm_iev.ibuf);
+
+	pthread_mutex_unlock(&global_evmutex);
 
 	_exit(0);
 }
