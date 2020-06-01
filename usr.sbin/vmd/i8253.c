@@ -48,7 +48,6 @@ struct i8253_channel i8253_channel[3];
 static struct event_base *evbase;
 static struct event watchdog;
 static struct timeval watchdog_tv;
-static struct timeval watchdog_quick_tv;
 static pthread_t i8253_thread;
 static pthread_mutex_t evmutex;
 
@@ -105,12 +104,10 @@ i8253_init(uint32_t vm_id)
 	/* Configure watchdog timevals and timer */
 	timerclear(&watchdog_tv);
 	watchdog_tv.tv_sec = 1;
-	timerclear(&watchdog_quick_tv);
-	watchdog_tv.tv_sec = 1;
 
 	evtimer_set(&watchdog, i8253_watchdog, NULL);
 	event_base_set(evbase, &watchdog);
-	timer_add(&evmutex, &watchdog, &watchdog_quick_tv);
+	timer_add(&evmutex, &watchdog, &watchdog_tv);
 
 	ret = pthread_mutex_init(&evmutex, NULL);
 	if (ret) {
@@ -459,9 +456,4 @@ i8253_start()
 	for (i = 0; i < 3; i++)
 		if (i8253_channel[i].in_use)
 			i8253_reset(i);
-
-	// We need a shorter watchdog for the next heartbeat.
-	// NOTE: I DO NOT UNDERSTAND WHY!
-	timer_del(&evmutex, &watchdog);
-	timer_add(&evmutex, &watchdog, &watchdog_quick_tv);
 }

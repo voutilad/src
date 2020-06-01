@@ -237,10 +237,13 @@ rtc_reschedule_per(void)
 		rate = 32768 >> ((rtc.regs[MC_REGA] & MC_RATE_MASK) - 1);
 		us = (1.0 / rate) * 1000000;
 		rtc.per_tv.tv_usec = us;
-		if (timer_pending(&evmutex, &rtc.per, NULL))
-			timer_del(&evmutex, &rtc.per);
 
-		timer_add(&evmutex, &rtc.per, &rtc.per_tv);
+		pthread_mutex_lock(&evmutex);
+		if (evtimer_pending(&rtc.per, NULL))
+			evtimer_del(&rtc.per);
+
+		evtimer_add(&rtc.per, &rtc.per_tv);
+		pthread_mutex_unlock(&evmutex);
 	}
 }
 
