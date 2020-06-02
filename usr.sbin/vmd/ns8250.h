@@ -64,6 +64,8 @@ struct ns8250_dev {
 	struct ns8250_regs regs;
 	struct event event;
 	struct event wake;
+	struct event rate;
+	struct timeval rate_tv;
 	enum ns8250_portid portid;
 	int fd;
 	int irq;

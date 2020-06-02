@@ -44,6 +44,11 @@ static struct timeval watchdog_tv;
 static pthread_t ns8250_thread;
 static pthread_mutex_t evmutex;
 
+static pthread_t ratelimit_thread;
+static struct event_base *ratelimit_evbase;
+static pthread_mutex_t ratelimit_mutex;
+static pthread_cond_t ratelimit_cond;
+
 static void com_rcv_event(int, short, void *);
 static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t);
 
@@ -51,6 +56,38 @@ static void
 ns8250_watchdog(int fd, short type, void *arg)
 {
 	timer_add(&evmutex, &watchdog, &watchdog_tv);
+}
+
+/*
+ * ratelimit
+ *
+ * Timeout callback function used when we have to slow down the output rate
+ * from the emulated serial port.
+ *
+ * Parameters:
+ *  fd: unused
+ *  type: unused
+ *  arg: unused
+ */
+static void
+ratelimit(int fd, short type, void *arg)
+{
+//	log_info("%s: called", __func__);
+	mutex_lock(&ratelimit_mutex);
+
+//	log_info("%s: clearing", __func__);
+	/* Set TXRDY and clear "no pending interrupt" */
+	com1_dev.regs.iir |= IIR_TXRDY;
+	com1_dev.regs.iir &= ~IIR_NOPEND;
+	vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
+	vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
+
+	pthread_cond_signal(&ratelimit_cond);
+//	log_info("%s: signalling", __func__);
+
+	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+	mutex_unlock(&ratelimit_mutex);
+//	log_info("%s: done", __func__);
 }
 
 void
@@ -63,7 +100,9 @@ ns8250_init(int fd, uint32_t vmid)
 		errno = ret;
 		fatal("could not initialize ns8250 event mutex");
 	}
+
 	evbase = event_base_new();
+	ratelimit_evbase = event_base_new();
 
 	memset(&com1_dev, 0, sizeof(com1_dev));
 	ret = pthread_mutex_init(&com1_dev.mutex, NULL);
@@ -71,6 +110,18 @@ ns8250_init(int fd, uint32_t vmid)
 		errno = ret;
 		fatal("could not initialize com1 mutex");
 	}
+
+	ret = pthread_mutex_init(&ratelimit_mutex, NULL);
+	if (ret) {
+		errno = ret;
+		fatal("could not initialize ratelimit mutex");
+	}
+	ret = pthread_cond_init(&ratelimit_cond, NULL);
+	if (ret) {
+		errno = ret;
+		fatal("could not initialize ratelimit thread condiiton");
+	}
+
 	com1_dev.fd = fd;
 	com1_dev.irq = 4;
 	com1_dev.portid = NS8250_COM1;
@@ -107,16 +158,26 @@ ns8250_init(int fd, uint32_t vmid)
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
 	event_base_set(evbase, &com1_dev.wake);
+	ev_add(&evmutex, &com1_dev.event, NULL);
+
+	/* Rate limiter for simulating baud rate */
+	timerclear(&com1_dev.rate_tv);
+	com1_dev.rate_tv.tv_usec = 10000;
+	evtimer_set(&com1_dev.rate, ratelimit, NULL);
+	event_base_set(ratelimit_evbase, &com1_dev.rate);
+	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
 
 	/* Watchdog for keeping the event pump running */
 	timerclear(&watchdog_tv);
-	watchdog_tv.tv_sec = 30;
+	watchdog_tv.tv_sec = 5;
 	evtimer_set(&watchdog, ns8250_watchdog, NULL);
 	event_base_set(evbase, &watchdog);
 
-	ev_add(&evmutex, &com1_dev.event, NULL);
-	ev_add(&evmutex, &com1_dev.wake, NULL);
-	timer_add(&evmutex, &watchdog, &watchdog_tv);
+//	evtimer_set(&ratelimit_watchdog, ns8250_ratelimit_watchdog, NULL);
+//	event_base_set(ratelimit_evbase, &ratelimit_watchdog);
+
+	evtimer_add(&watchdog, &watchdog_tv);
+//	evtimer_add(&ratelimit_watchdog, &watchdog_tv);
 }
 
 void
@@ -128,6 +189,12 @@ ns8250_init_thread(void)
 	ret = pthread_create(&ns8250_thread, NULL, event_loop_thread, evbase);
 	if (ret) {
 		fatal("%s: failed to start ns8250 thread: %d", __func__, ret);
+	}
+
+	log_debug("%s: starting ratelimit thread with evabse: %p", __func__, ratelimit_evbase);
+	ret = pthread_create(&ratelimit_thread, NULL, event_loop_thread, ratelimit_evbase);
+	if (ret) {
+		fatal("%s: failed ot start ratelimit thread: %d", __func__, ret);
 	}
 
 }
@@ -273,15 +340,24 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		com1_dev.byte_out++;
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
-			com1_dev.regs.iir |= IIR_TXRDY;
-			com1_dev.regs.iir &= ~IIR_NOPEND;
-
 			/* Limit output rate if needed */
 			if (com1_dev.pause_ct > 0 &&
 			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
-				vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
-				vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
-			}
+
+				//log_info("%s: starting rate limiting", __func__);
+				mutex_lock(&ratelimit_mutex);
+				//log_info("%s: adding timer", __func__);
+				//evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+				//log_info("%s: waiting on cond", __func__);
+				pthread_cond_wait(&ratelimit_cond, &ratelimit_mutex);
+				mutex_unlock(&ratelimit_mutex);
+				//log_info("%s: finished rate limiting", __func__);
+
+			} //else {
+				/* Set TXRDY and clear "no pending interrupt" */
+			//	com1_dev.regs.iir |= IIR_TXRDY;
+				com1_dev.regs.iir &= ~IIR_NOPEND;
+				//}
 		}
 	} else {
 		if (com1_dev.regs.lcr & LCR_DLAB) {
