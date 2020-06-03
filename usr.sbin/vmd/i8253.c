@@ -45,17 +45,8 @@ extern char *__progname;
  */
 struct i8253_channel i8253_channel[3];
 
-static struct event_base *evbase;
-static struct event watchdog;
-static struct timeval watchdog_tv;
-static pthread_t i8253_thread;
-static pthread_mutex_t evmutex;
-
-static void
-i8253_watchdog(int i, short s, void *arg)
-{
-	timer_add(&evmutex, &watchdog, &watchdog_tv);
-}
+extern struct event_base *global_evbase;
+extern pthread_mutex_t global_evmutex;
 
 /*
  * i8253_init
@@ -68,8 +59,6 @@ i8253_watchdog(int i, short s, void *arg)
 void
 i8253_init(uint32_t vm_id)
 {
-	int ret;
-
 	memset(&i8253_channel, 0, sizeof(struct i8253_channel));
 	clock_gettime(CLOCK_MONOTONIC, &i8253_channel[0].ts);
 	i8253_channel[0].start = 0xFFFF;
@@ -90,42 +79,14 @@ i8253_init(uint32_t vm_id)
 	i8253_channel[2].vm_id = vm_id;
 	i8253_channel[2].state = 0;
 
-	evbase = event_base_new();
-
 	evtimer_set(&i8253_channel[0].timer, i8253_fire, &i8253_channel[0]);
-	event_base_set(evbase, &i8253_channel[0].timer);
+	event_base_set(global_evbase, &i8253_channel[0].timer);
 
 	evtimer_set(&i8253_channel[1].timer, i8253_fire, &i8253_channel[1]);
-	event_base_set(evbase, &i8253_channel[1].timer);
+	event_base_set(global_evbase, &i8253_channel[1].timer);
 
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
-	event_base_set(evbase, &i8253_channel[2].timer);
-
-	/* Configure watchdog timevals and timer */
-	timerclear(&watchdog_tv);
-	watchdog_tv.tv_sec = 1;
-
-	evtimer_set(&watchdog, i8253_watchdog, NULL);
-	event_base_set(evbase, &watchdog);
-	timer_add(&evmutex, &watchdog, &watchdog_tv);
-
-	ret = pthread_mutex_init(&evmutex, NULL);
-	if (ret) {
-		fatal("%s: failed to create pthread_mutex", __func__);
-	}
-
-}
-
-void
-i8253_init_thread(void)
-{
-	int ret;
-
-	log_debug("%s: starting thread with evbase %p", __func__, evbase);
-	ret = pthread_create(&i8253_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: could not create thread", __func__);
-	}
+	event_base_set(global_evbase, &i8253_channel[2].timer);
 }
 
 /*
@@ -360,7 +321,8 @@ i8253_reset(uint8_t chn)
 {
 	struct timeval tv;
 
-	timer_del(&evmutex, &i8253_channel[chn].timer);
+	pthread_mutex_lock(&global_evmutex);
+	evtimer_del(&i8253_channel[chn].timer);
 	timerclear(&tv);
 
 	i8253_channel[chn].in_use = 1;
@@ -368,7 +330,8 @@ i8253_reset(uint8_t chn)
 	tv.tv_usec = (i8253_channel[chn].start * NS_PER_TICK) / 1000;
 	clock_gettime(CLOCK_MONOTONIC, &i8253_channel[chn].ts);
 
-	timer_add(&evmutex, &i8253_channel[chn].timer, &tv);
+	evtimer_add(&i8253_channel[chn].timer, &tv);
+	pthread_mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -394,7 +357,7 @@ i8253_fire(int fd, short type, void *arg)
 	if (ctr->mode != TIMER_INTTC) {
 		timerclear(&tv);
 		tv.tv_usec = (ctr->start * NS_PER_TICK) / 1000;
-		timer_add(&evmutex, &ctr->timer, &tv);
+		timer_add(&global_evmutex, &ctr->timer, &tv);
 	} else
 		ctr->state = 1;
 }
@@ -414,7 +377,7 @@ i8253_dump(int fd)
 int
 i8253_restore(int fd, uint32_t vm_id)
 {
-	int i, ret;
+	int i;
 	log_debug("%s: restoring PIT", __func__);
 	if (atomicio(read, fd, &i8253_channel, sizeof(i8253_channel)) !=
 	    sizeof(i8253_channel)) {
@@ -422,19 +385,12 @@ i8253_restore(int fd, uint32_t vm_id)
 		return (-1);
 	}
 
-	evbase = event_base_new();
-
-	ret = pthread_mutex_init(&evmutex, NULL);
-	if (ret) {
-		fatal("%s: failed to create pthread_mutex", __func__);
-	}
-
 	for (i = 0; i < 3; i++) {
 		memset(&i8253_channel[i].timer, 0, sizeof(struct event));
 		i8253_channel[i].vm_id = vm_id;
 		evtimer_set(&i8253_channel[i].timer, i8253_fire,
 		    &i8253_channel[i]);
-		event_base_set(evbase, &i8253_channel[i].timer);
+		event_base_set(global_evbase, &i8253_channel[i].timer);
 
 		i8253_reset(i);
 	}
@@ -446,7 +402,7 @@ i8253_stop()
 {
 	int i;
 	for (i = 0; i < 3; i++)
-		timer_del(&evmutex, &i8253_channel[i].timer);
+		timer_del(&global_evmutex, &i8253_channel[i].timer);
 }
 
 void

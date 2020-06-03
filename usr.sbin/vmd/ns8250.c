@@ -151,7 +151,7 @@ ns8250_init(int fd, uint32_t vmid)
 
 	/* Watchdog for keeping the event pump running */
 	timerclear(&watchdog_tv);
-	watchdog_tv.tv_sec = 5;
+	watchdog_tv.tv_sec = 60;
 	evtimer_set(&watchdog, ns8250_watchdog, NULL);
 	event_base_set(evbase, &watchdog);
 	evtimer_add(&watchdog, &watchdog_tv);
@@ -268,8 +268,10 @@ com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
 		if (errno != EAGAIN)
 			log_warn("unexpected read error on com device");
 	} else if (sz == 0) {
-		ev_del(&evmutex, &com->event);
-		ev_add(&evmutex, &com->wake, NULL);
+		mutex_lock(&evmutex);
+		event_del(&com->event);
+		event_add(&com->wake, NULL);
+		mutex_unlock(&evmutex);
 		return;
 	} else if (sz != 1 && sz != 2)
 		log_warnx("unexpected read return value %zd on com device", sz);
@@ -729,9 +731,11 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 void
 ns8250_stop()
 {
-	if (ev_del(&evmutex, &com1_dev.event))
+	mutex_lock(&evmutex);
+	if (event_del(&com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
-	ev_del(&ratelimit_mutex, &com1_dev.rate);
+	event_del(&com1_dev.rate);
+	mutex_unlock(&evmutex);
 
 	// Safely abort the ratelimiter thread by closing the event base
 	event_base_loopexit(ratelimit_evbase, NULL);
@@ -740,8 +744,11 @@ ns8250_stop()
 void
 ns8250_start()
 {
+	mutex_lock(&evmutex);
 	ev_add(&evmutex, &com1_dev.event, NULL);
 	ev_add(&evmutex, &com1_dev.wake, NULL);
-	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+	mutex_unlock(&evmutex);
+
+	timer_add(&ratelimit_mutex, &com1_dev.rate, &com1_dev.rate_tv);
 	init_ratelimit_thread();
 }
