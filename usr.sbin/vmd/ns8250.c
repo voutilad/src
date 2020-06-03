@@ -688,7 +688,9 @@ ns8250_stop()
 	mutex_lock(&global_evmutex);
 	if (event_del(&com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
-	event_del(&com1_dev.rate);
+
+	if (evtimer_pending(&com1_dev.rate, NULL))
+		event_del(&com1_dev.rate);
 	mutex_unlock(&global_evmutex);
 }
 

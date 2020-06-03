@@ -406,7 +406,7 @@ i8253_stop()
 	mutex_lock(&global_evmutex);
 	for (i = 0; i < 3; i++)
 		evtimer_del(&i8253_channel[i].timer);
-	mutex_lock(&global_evmutex);
+	mutex_unlock(&global_evmutex);
 }
 
 void

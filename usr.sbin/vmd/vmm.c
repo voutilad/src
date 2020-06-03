@@ -83,12 +83,12 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	if (config_init(ps->ps_env) == -1)
 		fatal("failed to initialize configuration");
 
-	pthread_mutex_lock(&global_evmutex);
+	mutex_lock(&global_evmutex);
 	signal_del(&ps->ps_evsigchld);
 	signal_set(&ps->ps_evsigchld, SIGCHLD, vmm_sighdlr, ps);
 	event_base_set(global_evbase, &ps->ps_evsigchld);
 	signal_add(&ps->ps_evsigchld, NULL);
-	pthread_mutex_unlock(&global_evmutex);
+	mutex_unlock(&global_evmutex);
 
 	/*
 	 * pledge in the vmm process:

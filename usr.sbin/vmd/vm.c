@@ -404,8 +404,6 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 	ssize_t			 n;
 	int			 verbose;
 
-	pthread_mutex_lock(&global_evmutex);
-
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("%s: imsg_read", __func__);
@@ -485,8 +483,6 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 		imsg_free(&imsg);
 	}
 	imsg_event_add(iev);
-
-	pthread_mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -497,8 +493,6 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 __dead void
 vm_shutdown(unsigned int cmd)
 {
-	pthread_mutex_lock(&global_evmutex);
-
 	switch (cmd) {
 	case VMMCI_NONE:
 	case VMMCI_SHUTDOWN:
@@ -513,8 +507,6 @@ vm_shutdown(unsigned int cmd)
 		fatalx("invalid vm ctl command: %d", cmd);
 	}
 	imsg_flush(&current_vm->vm_iev.ibuf);
-
-	pthread_mutex_unlock(&global_evmutex);
 
 	_exit(0);
 }

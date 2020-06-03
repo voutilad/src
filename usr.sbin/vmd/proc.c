@@ -724,12 +724,10 @@ imsg_event_add(struct imsgev *iev)
 		iev->events |= EV_WRITE;
 
 	mutex_lock(&global_evmutex);
-
 	event_del(&iev->ev);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
 	event_base_set(global_evbase, &iev->ev);
 	event_add(&iev->ev, NULL);
-
 	mutex_unlock(&global_evmutex);
 }
 
