@@ -33,29 +33,15 @@
 #include "vmd.h"
 #include "vmm.h"
 #include "atomicio.h"
-#include "safe_event.h"
 
 extern char *__progname;
 struct ns8250_dev com1_dev;
 
-static struct event_base *evbase;
-static struct event watchdog;
-static struct timeval watchdog_tv;
-static pthread_t ns8250_thread;
-static pthread_mutex_t evmutex;
-
-static pthread_t ratelimit_thread;
-static struct event_base *ratelimit_evbase;
-static pthread_mutex_t ratelimit_mutex;
+extern struct event_base *global_evbase;
+extern pthread_mutex_t global_evmutex;
 
 static void com_rcv_event(int, short, void *);
 static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t);
-
-static void
-ns8250_watchdog(int fd, short type, void *arg)
-{
-	timer_add(&evmutex, &watchdog, &watchdog_tv);
-}
 
 /*
  * ratelimit
@@ -71,10 +57,17 @@ ns8250_watchdog(int fd, short type, void *arg)
 static void
 ratelimit(int fd, short type, void *arg)
 {
+	mutex_lock(&com1_dev.mutex);
+	com1_dev.regs.iir |= IIR_TXRDY;
+	com1_dev.regs.iir &= ~IIR_NOPEND;
+	mutex_unlock(&com1_dev.mutex);
+
 	vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
 	vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
 
-	timer_add(&ratelimit_mutex, &com1_dev.rate, &com1_dev.rate_tv);
+	mutex_lock(&global_evmutex);
+	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+	mutex_unlock(&global_evmutex);
 }
 
 void
@@ -82,26 +75,11 @@ ns8250_init(int fd, uint32_t vmid)
 {
 	int ret;
 
-	ret = pthread_mutex_init(&evmutex, NULL);
-	if (ret) {
-		errno = ret;
-		fatal("could not initialize ns8250 event mutex");
-	}
-
-	evbase = event_base_new();
-	ratelimit_evbase = event_base_new();
-
 	memset(&com1_dev, 0, sizeof(com1_dev));
 	ret = pthread_mutex_init(&com1_dev.mutex, NULL);
 	if (ret) {
 		errno = ret;
 		fatal("could not initialize com1 mutex");
-	}
-
-	ret = pthread_mutex_init(&ratelimit_mutex, NULL);
-	if (ret) {
-		errno = ret;
-		fatal("could not initialize ratelimit mutex");
 	}
 
 	com1_dev.fd = fd;
@@ -130,7 +108,7 @@ ns8250_init(int fd, uint32_t vmid)
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(evbase, &com1_dev.event);
+	event_base_set(global_evbase, &com1_dev.event);
 
 	/*
 	 * Whenever fd is writable implies that the pty slave is connected.
@@ -139,46 +117,15 @@ ns8250_init(int fd, uint32_t vmid)
 	 */
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(evbase, &com1_dev.wake);
-	ev_add(&evmutex, &com1_dev.event, NULL);
+	event_base_set(global_evbase, &com1_dev.wake);
+	event_add(&com1_dev.event, NULL);
 
 	/* Rate limiter for simulating baud rate */
 	timerclear(&com1_dev.rate_tv);
 	com1_dev.rate_tv.tv_usec = 10000;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
-	event_base_set(ratelimit_evbase, &com1_dev.rate);
+	event_base_set(global_evbase, &com1_dev.rate);
 	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
-
-	/* Watchdog for keeping the event pump running */
-	timerclear(&watchdog_tv);
-	watchdog_tv.tv_sec = 60;
-	evtimer_set(&watchdog, ns8250_watchdog, NULL);
-	event_base_set(evbase, &watchdog);
-	evtimer_add(&watchdog, &watchdog_tv);
-}
-
-static void
-init_ratelimit_thread(void)
-{
-	int ret;
-	log_debug("%s: starting ratelimit thread with evbase: %p", __func__, ratelimit_evbase);
-	ret = pthread_create(&ratelimit_thread, NULL, event_loop_thread, ratelimit_evbase);
-	if (ret) {
-		fatal("%s: failed to start ratelimit thread: %d", __func__, ret);
-	}
-}
-
-void
-ns8250_init_thread(void)
-{
-	int ret;
-
-	log_debug("%s: starting thread with evbase %p", __func__, evbase);
-	ret = pthread_create(&ns8250_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: failed to start ns8250 thread: %d", __func__, ret);
-	}
-	init_ratelimit_thread();
 }
 
 static void
@@ -187,7 +134,10 @@ com_rcv_event(int fd, short kind, void *arg)
 	mutex_lock(&com1_dev.mutex);
 
 	if (kind == EV_WRITE) {
-		ev_add(&evmutex, &com1_dev.event, NULL);
+		mutex_lock(&global_evmutex);
+		event_add(&com1_dev.event, NULL);
+		mutex_unlock(&global_evmutex);
+
 		mutex_unlock(&com1_dev.mutex);
 		return;
 	}
@@ -268,10 +218,10 @@ com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
 		if (errno != EAGAIN)
 			log_warn("unexpected read error on com device");
 	} else if (sz == 0) {
-		mutex_lock(&evmutex);
+		mutex_lock(&global_evmutex);
 		event_del(&com->event);
 		event_add(&com->wake, NULL);
-		mutex_unlock(&evmutex);
+		mutex_unlock(&global_evmutex);
 		return;
 	} else if (sz != 1 && sz != 2)
 		log_warnx("unexpected read return value %zd on com device", sz);
@@ -324,8 +274,15 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		com1_dev.byte_out++;
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
-			com1_dev.regs.iir |= IIR_TXRDY;
-			com1_dev.regs.iir &= ~IIR_NOPEND;
+			/* Limit output rate if needed */
+			if (com1_dev.pause_ct > 0 &&
+			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
+				// skip evtimer_add(com1_dev.rate, &com1_dev.rate_tv);
+			} else {
+				/* Set TXRDY and clear "no pending interrupt" */
+				com1_dev.regs.iir |= IIR_TXRDY;
+				com1_dev.regs.iir &= ~IIR_NOPEND;
+			}
 		}
 	} else {
 		if (com1_dev.regs.lcr & LCR_DLAB) {
@@ -719,11 +676,11 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(evbase, &com1_dev.event);
+	event_base_set(global_evbase, &com1_dev.event);
 
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(evbase, &com1_dev.wake);
+	event_base_set(global_evbase, &com1_dev.wake);
 
 	return (0);
 }
@@ -731,24 +688,19 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 void
 ns8250_stop()
 {
-	mutex_lock(&evmutex);
+	mutex_lock(&global_evmutex);
 	if (event_del(&com1_dev.event))
 		log_warn("could not delete ns8250 event handler");
 	event_del(&com1_dev.rate);
-	mutex_unlock(&evmutex);
-
-	// Safely abort the ratelimiter thread by closing the event base
-	event_base_loopexit(ratelimit_evbase, NULL);
+	mutex_unlock(&global_evmutex);
 }
 
 void
 ns8250_start()
 {
-	mutex_lock(&evmutex);
-	ev_add(&evmutex, &com1_dev.event, NULL);
-	ev_add(&evmutex, &com1_dev.wake, NULL);
-	mutex_unlock(&evmutex);
-
-	timer_add(&ratelimit_mutex, &com1_dev.rate, &com1_dev.rate_tv);
-	init_ratelimit_thread();
+	mutex_lock(&global_evmutex);
+	event_add(&com1_dev.event, NULL);
+	event_add(&com1_dev.wake, NULL);
+	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+	mutex_unlock(&global_evmutex);
 }

@@ -31,9 +31,9 @@
 
 #include "i8253.h"
 #include "proc.h"
+#include "vmd.h"
 #include "vmm.h"
 #include "atomicio.h"
-#include "safe_event.h"
 
 extern char *__progname;
 
@@ -321,8 +321,9 @@ i8253_reset(uint8_t chn)
 {
 	struct timeval tv;
 
-	pthread_mutex_lock(&global_evmutex);
-	evtimer_del(&i8253_channel[chn].timer);
+	mutex_lock(&global_evmutex);
+	if (evtimer_pending(&i8253_channel[chn].timer, NULL))
+	    evtimer_del(&i8253_channel[chn].timer);
 	timerclear(&tv);
 
 	i8253_channel[chn].in_use = 1;
@@ -331,7 +332,7 @@ i8253_reset(uint8_t chn)
 	clock_gettime(CLOCK_MONOTONIC, &i8253_channel[chn].ts);
 
 	evtimer_add(&i8253_channel[chn].timer, &tv);
-	pthread_mutex_unlock(&global_evmutex);
+	mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -357,7 +358,9 @@ i8253_fire(int fd, short type, void *arg)
 	if (ctr->mode != TIMER_INTTC) {
 		timerclear(&tv);
 		tv.tv_usec = (ctr->start * NS_PER_TICK) / 1000;
-		timer_add(&global_evmutex, &ctr->timer, &tv);
+		mutex_lock(&global_evmutex);
+		evtimer_add(&ctr->timer, &tv);
+		mutex_unlock(&global_evmutex);
 	} else
 		ctr->state = 1;
 }
@@ -401,8 +404,10 @@ void
 i8253_stop()
 {
 	int i;
+	mutex_lock(&global_evmutex);
 	for (i = 0; i < 3; i++)
-		timer_del(&global_evmutex, &i8253_channel[i].timer);
+		evtimer_del(&i8253_channel[i].timer);
+	mutex_lock(&global_evmutex);
 }
 
 void

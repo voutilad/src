@@ -47,7 +47,6 @@
 #include "vioscsi.h"
 #include "loadfile.h"
 #include "atomicio.h"
-#include "safe_event.h"
 
 extern char *__progname;
 struct viornd_dev viornd;
@@ -56,11 +55,8 @@ struct vionet_dev *vionet;
 struct vioscsi_dev *vioscsi;
 struct vmmci_dev vmmci;
 
-static struct event_base *evbase;
-static struct event watchdog;
-static struct timeval watchdog_tv;
-static pthread_t virtio_thread;
-static pthread_mutex_t evmutex;
+extern struct event_base *global_evbase;
+extern pthread_mutex_t global_evmutex;
 
 int nr_vionet;
 int nr_vioblk;
@@ -75,12 +71,6 @@ int nr_vioblk;
 
 #define RXQ	0
 #define TXQ	1
-
-static void
-virtio_watchdog(int fd, short type, void *arg)
-{
-	timer_add(&evmutex, &watchdog, &watchdog_tv);
-}
 
 const char *
 vioblk_cmd_name(uint32_t type)
@@ -1601,7 +1591,9 @@ vmmci_ctl(unsigned int cmd)
 
 		/* Add ACK timeout */
 		tv.tv_sec = VMMCI_TIMEOUT;
-		timer_add(&evmutex, &vmmci.timeout, &tv);
+		mutex_lock(&global_evmutex);
+		evtimer_add(&vmmci.timeout, &tv);
+		mutex_unlock(&global_evmutex);
 		break;
 	case VMMCI_SYNCRTC:
 		if (vmmci.cfg.guest_feature & VMMCI_F_SYNCRTC) {
@@ -1641,7 +1633,10 @@ vmmci_ack(unsigned int cmd)
 			log_debug("%s: vm %u requested shutdown", __func__,
 			    vmmci.vm_id);
 			tv.tv_sec = VMMCI_TIMEOUT;
-			timer_add(&evmutex, &vmmci.timeout, &tv);
+
+			mutex_lock(&global_evmutex);
+			evtimer_add(&vmmci.timeout, &tv);
+			mutex_unlock(&global_evmutex);
 			return;
 		}
 		/* FALLTHROUGH */
@@ -1653,13 +1648,15 @@ vmmci_ack(unsigned int cmd)
 		 * rc.shutdown on the VM), so increase the timeout before
 		 * killing it forcefully.
 		 */
+		mutex_lock(&global_evmutex);
 		if (cmd == vmmci.cmd &&
-		    timer_pending(&evmutex, &vmmci.timeout, NULL)) {
+		    evtimer_pending(&vmmci.timeout, NULL)) {
 			log_debug("%s: vm %u acknowledged shutdown request",
 			    __func__, vmmci.vm_id);
 			tv.tv_sec = VMMCI_SHUTDOWN_TIMEOUT;
-			timer_add(&evmutex, &vmmci.timeout, &tv);
+			evtimer_add(&vmmci.timeout, &tv);
 		}
+		mutex_unlock(&global_evmutex);
 		break;
 	case VMMCI_SYNCRTC:
 		log_debug("%s: vm %u acknowledged RTC sync request",
@@ -1806,13 +1803,6 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 	uint8_t i;
 	int ret;
 
-	evbase = event_base_new();
-
-	ret = pthread_mutex_init(&evmutex, NULL);
-	if (ret) {
-		fatal("%s: failed to create pthread_mutex", __func__);
-	}
-
 	/* Virtio entropy device */
 	if (pci_add_device(&id, PCI_VENDOR_QUMRANET,
 	    PCI_PRODUCT_QUMRANET_VIO_RNG, PCI_CLASS_SYSTEM,
@@ -1900,8 +1890,8 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 
 			event_set(&vionet[i].event, vionet[i].fd,
 			    EV_READ | EV_PERSIST, vionet_rx_event, &vionet[i]);
-			event_base_set(evbase, &vionet[i].event);
-			if (ev_add(&evmutex, &vionet[i].event, NULL)) {
+			event_base_set(global_evbase, &vionet[i].event);
+			if (event_add(&vionet[i].event, NULL)) {
 				log_warn("could not initialize vionet event "
 				    "handler");
 				return;
@@ -2055,26 +2045,7 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 	vmmci.pci_id = id;
 
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
-	event_base_set(evbase, &vmmci.timeout);
-
-	/* Watchdog setup */
-	timerclear(&watchdog_tv);
-	watchdog_tv.tv_sec = 30;
-	evtimer_set(&watchdog, virtio_watchdog, NULL);
-	event_base_set(evbase, &watchdog);
-	timer_add(&evmutex, &watchdog, &watchdog_tv);
-}
-
-void
-virtio_init_thread(void)
-{
-	int ret;
-
-	log_debug("%s: starting thread with evbase %p", __func__, evbase);
-	ret = pthread_create(&virtio_thread, NULL, event_loop_thread, evbase);
-	if (ret) {
-		fatal("%s: could not create thread", __func__);
-	}
+	event_base_set(global_evbase, &vmmci.timeout);
 }
 
 void
@@ -2108,7 +2079,7 @@ vmmci_restore(int fd, uint32_t vm_id)
 	vmmci.irq = pci_get_dev_irq(vmmci.pci_id);
 	memset(&vmmci.timeout, 0, sizeof(struct event));
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
-	event_base_set(evbase, &vmmci.timeout);
+	event_base_set(global_evbase, &vmmci.timeout);
 	return (0);
 }
 
@@ -2138,8 +2109,6 @@ vionet_restore(int fd, struct vmd_vm *vm, int *child_taps)
 	struct vm_create_params *vcp = &vmc->vmc_params;
 	uint8_t i;
 	int ret;
-
-	evbase = event_base_new();
 
 	nr_vionet = vcp->vcp_nnics;
 	if (vcp->vcp_nnics > 0) {
@@ -2185,7 +2154,7 @@ vionet_restore(int fd, struct vmd_vm *vm, int *child_taps)
 			memset(&vionet[i].event, 0, sizeof(struct event));
 			event_set(&vionet[i].event, vionet[i].fd,
 			    EV_READ | EV_PERSIST, vionet_rx_event, &vionet[i]);
-			event_base_set(evbase, &vionet[i].event);
+			event_base_set(global_evbase, &vionet[i].event);
 		}
 	}
 	return (0);
@@ -2384,24 +2353,28 @@ void
 virtio_stop(struct vm_create_params *vcp)
 {
 	uint8_t i;
+	mutex_lock(&global_evmutex);
 	for (i = 0; i < vcp->vcp_nnics; i++) {
-		if (ev_del(&evmutex, &vionet[i].event)) {
+		if (event_del(&vionet[i].event)) {
 			log_warn("could not initialize vionet event "
 			    "handler");
-			return;
+			break;
 		}
 	}
+	mutex_unlock(&global_evmutex);
 }
 
 void
 virtio_start(struct vm_create_params *vcp)
 {
 	uint8_t i;
+	mutex_lock(&global_evmutex);
 	for (i = 0; i < vcp->vcp_nnics; i++) {
-		if (ev_add(&evmutex, &vionet[i].event, NULL)) {
+		if (event_add(&vionet[i].event, NULL)) {
 			log_warn("could not initialize vionet event "
 			    "handler");
-			return;
+			break;
 		}
 	}
+	mutex_unlock(&global_evmutex);
 }

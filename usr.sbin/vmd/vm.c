@@ -1058,7 +1058,6 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	ns8250_init(con_fd, vcp->vcp_id);
 	for (i = COM1_DATA; i <= COM1_SCR; i++)
 		ioports_map[i] = vcpu_exit_com;
-	ns8250_init_thread();
 
 	/* Init QEMU fw_cfg interface */
 	fw_cfg_init(vmc);
@@ -1080,7 +1079,6 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 
 	/* Initialize virtio devices */
 	virtio_init(current_vm, child_cdrom, child_disks, child_taps);
-	virtio_init_thread();
 }
 
 /*

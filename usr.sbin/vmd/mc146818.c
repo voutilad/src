@@ -35,7 +35,6 @@
 #include "virtio.h"
 #include "vmm.h"
 #include "atomicio.h"
-#include "safe_event.h"
 
 #define MC_DIVIDER_MASK 0xe0
 #define MC_RATE_MASK 0xf
@@ -115,7 +114,10 @@ rtc_fire1(int fd, short type, void *arg)
 		    "resync", __func__, (rtc.now - old));
 		vmmci_ctl(VMMCI_SYNCRTC);
 	}
-	ev_add(&global_evmutex, &rtc.sec, &rtc.sec_tv);
+
+	mutex_lock(&global_evmutex);
+	event_add(&rtc.sec, &rtc.sec_tv);
+	mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -136,7 +138,9 @@ rtc_fireper(int fd, short type, void *arg)
 	vcpu_assert_pic_irq((ptrdiff_t)arg, 0, 8);
 	vcpu_deassert_pic_irq((ptrdiff_t)arg, 0, 8);
 
-	ev_add(&global_evmutex, &rtc.per, &rtc.per_tv);
+	mutex_lock(&global_evmutex);
+	event_add(&rtc.per, &rtc.per_tv);
+	mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -178,7 +182,7 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 
 	evtimer_set(&rtc.sec, rtc_fire1, NULL);
 	event_base_set(global_evbase, &rtc.sec);
-	timer_add(&global_evmutex, &rtc.sec, &rtc.sec_tv);
+	evtimer_add(&rtc.sec, &rtc.sec_tv);
 
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 	event_base_set(global_evbase, &rtc.per);
@@ -201,12 +205,12 @@ rtc_reschedule_per(void)
 		us = (1.0 / rate) * 1000000;
 		rtc.per_tv.tv_usec = us;
 
-		pthread_mutex_lock(&global_evmutex);
+		mutex_lock(&global_evmutex);
 		if (evtimer_pending(&rtc.per, NULL))
 			evtimer_del(&rtc.per);
 
 		evtimer_add(&rtc.per, &rtc.per_tv);
-		pthread_mutex_unlock(&global_evmutex);
+		mutex_unlock(&global_evmutex);
 	}
 }
 
@@ -362,15 +366,18 @@ mc146818_restore(int fd, uint32_t vm_id)
 void
 mc146818_stop()
 {
-	pthread_mutex_lock(&global_evmutex);
+	mutex_lock(&global_evmutex);
 	evtimer_del(&rtc.per);
 	evtimer_del(&rtc.sec);
-	pthread_mutex_unlock(&global_evmutex);
+	mutex_unlock(&global_evmutex);
 }
 
 void
 mc146818_start()
 {
-	timer_add(&global_evmutex, &rtc.sec, &rtc.sec_tv);
+	mutex_lock(&global_evmutex);
+	evtimer_add(&rtc.sec, &rtc.sec_tv);
+	mutex_unlock(&global_evmutex);
+
 	rtc_reschedule_per();
 }

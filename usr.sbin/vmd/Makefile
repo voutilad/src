@@ -7,7 +7,6 @@ SRCS=		vmd.c control.c log.c priv.c proc.c config.c vmm.c
 SRCS+=		vm.c loadfile_elf.c pci.c virtio.c i8259.c mc146818.c
 SRCS+=		ns8250.c i8253.c vmboot.c ufs.c disklabel.c dhcp.c packet.c
 SRCS+=		parse.y atomicio.c vioscsi.c vioraw.c vioqcow2.c fw_cfg.c
-SRCS+=		safe_event.c
 
 CFLAGS+=	-Wall -I${.CURDIR}
 CFLAGS+=	-Wstrict-prototypes -Wmissing-prototypes
