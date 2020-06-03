@@ -778,13 +778,9 @@ pause_vm(struct vm_create_params *vcp)
 	}
 
 	i8253_stop();
-	log_debug("%s: i8253 stopped", __func__);
 	mc146818_stop();
-	log_debug("%s: mc14618 stopped", __func__);
 	ns8250_stop();
-	log_debug("%s: ns8250 stopped", __func__);
 	virtio_stop(vcp);
-	log_debug("%s: virtio stopped", __func__);
 }
 
 void
@@ -806,13 +802,9 @@ unpause_vm(struct vm_create_params *vcp)
 	}
 
 	virtio_start(vcp);
-	log_debug("%s: virtio restarted", __func__);
 	ns8250_start();
-	log_debug("%s: ns8250 restarted", __func__);
 	mc146818_start();
-	log_debug("%s: mc146818 restarted", __func__);
 	i8253_start();
-	log_debug("%s: i8253 restarted", __func__);
 }
 
 /*
