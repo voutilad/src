@@ -23,7 +23,6 @@
 #include <machine/vmmvar.h>
 
 #include <event.h>
-#include <pthread.h>
 #include <stddef.h>
 #include <string.h>
 #include <time.h>

@@ -274,11 +274,8 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		com1_dev.byte_out++;
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
-			/* Limit output rate if needed */
-			if (com1_dev.pause_ct > 0 &&
-			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
-				// skip evtimer_add(com1_dev.rate, &com1_dev.rate_tv);
-			} else {
+			if (!(com1_dev.pause_ct > 0 &&
+				com1_dev.byte_out % com1_dev.pause_ct == 0)) {
 				/* Set TXRDY and clear "no pending interrupt" */
 				com1_dev.regs.iir |= IIR_TXRDY;
 				com1_dev.regs.iir &= ~IIR_NOPEND;

@@ -30,14 +30,15 @@
 #include <errno.h>
 #include <signal.h>
 #include <paths.h>
-#include <pthread.h>
 #include <pwd.h>
 #include <event.h>
 #include <imsg.h>
 
 #include "proc.h"
+#include "vmd.h"
 
 extern struct event_base *global_evbase;
+extern pthread_mutex_t global_evmutex;
 
 void	 proc_exec(struct privsep *, struct privsep_proc *, unsigned int, int,
 	    int, char **);
@@ -572,9 +573,6 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("%s: cannot drop privileges", __func__);
 
-	//event_init();
-	//global_evbase = event_base_new();
-
 	signal_set(&ps->ps_evsigint, SIGINT, proc_sig_handler, p);
 	event_base_set(global_evbase, &ps->ps_evsigint);
 	signal_set(&ps->ps_evsigterm, SIGTERM, proc_sig_handler, p);
@@ -725,10 +723,14 @@ imsg_event_add(struct imsgev *iev)
 	if (iev->ibuf.w.queued)
 		iev->events |= EV_WRITE;
 
+	mutex_lock(&global_evmutex);
+
 	event_del(&iev->ev);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
 	event_base_set(global_evbase, &iev->ev);
 	event_add(&iev->ev, NULL);
+
+	mutex_unlock(&global_evmutex);
 }
 
 int
