@@ -822,8 +822,6 @@ main(int argc, char **argv)
 	if (title != NULL)
 		ps->ps_title[proc_id] = title;
 
-	global_evbase = event_base_new();
-
 	if (pthread_mutex_init(&global_evmutex, NULL)) {
 		fatal("can't initialize global pthread_mutex");
 	}
@@ -838,6 +836,8 @@ main(int argc, char **argv)
 
 	if (ps->ps_noaction == 0)
 		log_info("startup");
+
+	global_evbase = event_base_new();
 
 	signal_set(&ps->ps_evsigint, SIGINT, vmd_sighdlr, ps);
 	event_base_set(global_evbase, &ps->ps_evsigint);

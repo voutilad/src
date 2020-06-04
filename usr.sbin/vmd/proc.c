@@ -162,7 +162,6 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 			default:
 				/* Close child end. */
 				close(fd);
-				event_reinit(global_evbase);
 				break;
 			}
 		}
@@ -572,6 +571,8 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("%s: cannot drop privileges", __func__);
+
+	global_evbase = event_base_new();
 
 	signal_set(&ps->ps_evsigint, SIGINT, proc_sig_handler, p);
 	event_base_set(global_evbase, &ps->ps_evsigint);
