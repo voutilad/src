@@ -2308,8 +2308,21 @@ vm_pipe(struct vm_dev_pipe *p, size_t len, void (*cb)(int, short, void *))
 void
 vm_pipe_send(struct vm_dev_pipe *p, const void *msg)
 {
-	int ret;
-	char dummy = 1;
+	vm_pipe_send_timeout(p, msg, NULL);
+}
+
+void
+vm_pipe_send_timeout(struct vm_dev_pipe *p, const void *msg,
+    struct timeval *tv)
+{
+	int dummy = 1;
+	struct timeval now;
+	struct timespec ts;
+
+	gettimeofday(&now, NULL);
+	ts.tv_sec = now.tv_sec + tv->tv_sec;
+	ts.tv_nsec = (now.tv_usec + tv->tv_usec) * 1000UL;
+		int ret;
 
 	mutex_lock(&p->mutex);
 
@@ -2319,9 +2332,15 @@ vm_pipe_send(struct vm_dev_pipe *p, const void *msg)
 		write(p->write, &dummy, sizeof(char));
 	}
 
-	ret = pthread_cond_wait(&p->cond, &p->mutex);
+	if (tv) {
+		ret = pthread_cond_timedwait(&p->cond, &p->mutex, &ts);
+	} else {
+		ret = pthread_cond_wait(&p->cond, &p->mutex);
+	}
+
 	if (ret) {
 		fatal("failed to wait on vm_dev_pipe's thread condition");
 	}
+
 	mutex_unlock(&p->mutex);
 }

@@ -369,7 +369,12 @@ i8253_reset(uint8_t chn)
 void
 i8253_blocking_reset(uint8_t chn)
 {
-	vm_pipe_send(&dev_pipe, &chn);
+	struct timeval tv;
+	timerclear(&tv);
+	tv.tv_sec = 5;
+
+	/* i8253 resets happen very frequently and can easily block pausing */
+	vm_pipe_send_timeout(&dev_pipe, &chn, &tv);
 }
 
 /*

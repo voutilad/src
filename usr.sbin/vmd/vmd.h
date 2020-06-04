@@ -453,6 +453,8 @@ int	 start_vm(struct vmd_vm *, int);
 __dead void vm_shutdown(unsigned int);
 void	 vm_pipe(struct vm_dev_pipe *, size_t, void (*)(int, short, void *));
 void	 vm_pipe_send(struct vm_dev_pipe *, const void *);
+void	 vm_pipe_send_timeout(struct vm_dev_pipe *, const void *,
+            struct timeval *);
 
 /* control.c */
 int	 config_init(struct vmd *);
