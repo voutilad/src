@@ -402,8 +402,8 @@ mc146818_restore(int fd, uint32_t vm_id)
 void
 mc146818_stop()
 {
-	event_del(&rtc.per);
-	event_del(&rtc.sec);
+	evtimer_del(&rtc.per);
+	evtimer_del(&rtc.sec);
 }
 
 void

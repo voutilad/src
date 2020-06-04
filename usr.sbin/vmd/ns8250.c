@@ -716,7 +716,7 @@ void
 ns8250_stop()
 {
 	event_del(&com1_dev.rate);
-	event_del(&com1_dev.rate);
+	evtimer_del(&com1_dev.rate);
 }
 
 void

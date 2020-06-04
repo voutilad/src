@@ -440,9 +440,9 @@ i8253_restore(int fd, uint32_t vm_id)
 void
 i8253_stop()
 {
-	event_del(&i8253_channel[0].timer);
-	event_del(&i8253_channel[1].timer);
-	event_del(&i8253_channel[2].timer);
+	evtimer_del(&i8253_channel[0].timer);
+	evtimer_del(&i8253_channel[1].timer);
+	evtimer_del(&i8253_channel[2].timer);
 }
 
 void
