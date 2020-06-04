@@ -23,6 +23,7 @@
 #include <machine/vmmvar.h>
 
 #include <event.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
@@ -65,6 +66,43 @@ struct mc146818 {
 };
 
 struct mc146818 rtc;
+
+static struct event pipe_read;
+static pthread_mutex_t dev_mutex;
+static pthread_cond_t dev_cond;
+static int dev_pipe[2];
+
+enum message_type {
+	RESCHEDULE,
+};
+
+void rtc_reschedule_per(void);
+
+static void
+pipe_message(int fd, short event, void *arg)
+{
+	size_t n;
+	int msg;
+	mutex_lock(&dev_mutex);
+
+	n = read(fd, &msg, sizeof(msg));
+	if (n < sizeof(msg)) {
+		log_warnx("%s: only got %lu bytes", __func__, n);
+	}
+
+	switch (msg) {
+	case RESCHEDULE:
+		log_debug("%s: rescheduling periodic timer", __func__);
+		rtc_reschedule_per();
+		break;
+	default:
+		log_warnx("%s: unknown message type: %d", __func__, msg);
+	}
+
+	pthread_cond_signal(&dev_cond);
+	mutex_unlock(&dev_mutex);
+
+}
 
 /*
  * rtc_updateregs
@@ -185,6 +223,20 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 	event_base_set(global_evbase, &rtc.per);
+
+	if (pthread_mutex_init(&dev_mutex, NULL))
+		fatal("cannot create m146818 device mutex");
+
+	if (pthread_cond_init(&dev_cond, NULL))
+		fatal("cannot create m146818 device condition variable");
+
+	if (pipe2(dev_pipe, O_NONBLOCK))
+		fatal("failed to create mc146818 device pipe");
+
+	event_set(&pipe_read, dev_pipe[0], EV_READ | EV_PERSIST,
+	    pipe_message, NULL);
+	event_base_set(global_evbase, &pipe_read);
+	event_add(&pipe_read, NULL);
 }
 
 /*
@@ -193,7 +245,7 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
  * Reschedule the periodic interrupt firing rate, based on the currently
  * selected REGB values.
  */
-static void
+void
 rtc_reschedule_per(void)
 {
 	uint16_t rate;
@@ -213,6 +265,18 @@ rtc_reschedule_per(void)
 	}
 }
 
+static void
+rtc_blocking_reschedule_per(void)
+{
+	size_t n;
+	int msg = RESCHEDULE;
+
+	mutex_lock(&dev_mutex);
+	n = write(dev_pipe[1], &msg, sizeof (msg));
+	pthread_cond_wait(&dev_cond, &dev_mutex);
+	mutex_unlock(&dev_mutex);
+}
+
 /*
  * rtc_update_rega
  *
@@ -230,7 +294,7 @@ rtc_update_rega(uint32_t data)
 
 	rtc.regs[MC_REGA] = data;
 	if ((rtc.regs[MC_REGA] ^ data) & 0x0f)
-		rtc_reschedule_per();
+		rtc_blocking_reschedule_per();
 }
 
 /*
@@ -253,7 +317,7 @@ rtc_update_regb(uint32_t data)
 	rtc.regs[MC_REGB] = data;
 
 	if (data & MC_REGB_PIE)
-		rtc_reschedule_per();
+		rtc_blocking_reschedule_per();
 }
 
 /*
@@ -365,18 +429,13 @@ mc146818_restore(int fd, uint32_t vm_id)
 void
 mc146818_stop()
 {
-	mutex_lock(&global_evmutex);
-	evtimer_del(&rtc.per);
-	evtimer_del(&rtc.sec);
-	mutex_unlock(&global_evmutex);
+	event_del(&rtc.per);
+	event_del(&rtc.sec);
 }
 
 void
 mc146818_start()
 {
-	mutex_lock(&global_evmutex);
 	evtimer_add(&rtc.sec, &rtc.sec_tv);
-	mutex_unlock(&global_evmutex);
-
 	rtc_reschedule_per();
 }

@@ -801,10 +801,10 @@ unpause_vm(struct vm_create_params *vcp)
 		}
 	}
 
-	virtio_start(vcp);
-	ns8250_start();
-	mc146818_start();
 	i8253_start();
+	mc146818_start();
+	ns8250_start();
+	virtio_start(vcp);
 }
 
 /*

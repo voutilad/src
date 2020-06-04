@@ -15,6 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/errno.h>
 #include <sys/time.h>
 #include <sys/types.h>
 
@@ -55,7 +56,6 @@ static int dev_pipe[2];
 
 enum message_type {
 	RESET,
-	STOP
 };
 
 struct device_msg {
@@ -83,11 +83,8 @@ pipe_message(int fd, short event, void *arg)
 		log_debug("%s: resetting chn: %u", __func__, msg.chn);
 		i8253_reset(msg.chn);
 		break;
-	case STOP:
-		event_del(&i8253_channel[0].timer);
-		event_del(&i8253_channel[1].timer);
-		event_del(&i8253_channel[2].timer);
-		break;
+	default:
+		log_warnx("%s: unknown message type: %d", __func__, msg.type);
 	}
 
 	pthread_cond_signal(&dev_cond);
@@ -397,16 +394,28 @@ i8253_reset(uint8_t chn)
 void
 i8253_blocking_reset(uint8_t chn)
 {
+	int ret;
 	size_t n;
+	struct timespec ts;
+	struct timeval now;
 	struct device_msg msg;
-
 
 	msg.type = RESET;
 	msg.chn = chn;
 
+	gettimeofday(&now, NULL);
+	ts.tv_sec = now.tv_sec + 5;
+	ts.tv_nsec = now.tv_usec * 1000UL;
+
 	mutex_lock(&dev_mutex);
-	n = write(dev_pipe[1], &msg, sizeof (msg));
-	pthread_cond_wait(&dev_cond, &dev_mutex);
+	n = write(dev_pipe[1], &msg, sizeof(msg));
+	ret = pthread_cond_timedwait(&dev_cond, &dev_mutex, &ts);
+	if (ret == ETIMEDOUT) {
+		log_info("%s: timed out waiting for i8253 reset", __func__);
+	} else if (ret) {
+		log_warnx("%s: failed to wait on condition variable: %d",
+		    __func__, ret);
+	}
 	mutex_unlock(&dev_mutex);
 }
 
@@ -470,7 +479,7 @@ i8253_restore(int fd, uint32_t vm_id)
 		    &i8253_channel[i]);
 		event_base_set(global_evbase, &i8253_channel[i].timer);
 
-		i8253_blocking_reset(i);
+		i8253_reset(i);
 	}
 	return (0);
 }
@@ -478,15 +487,9 @@ i8253_restore(int fd, uint32_t vm_id)
 void
 i8253_stop()
 {
-	size_t n;
-	struct device_msg msg;
-
-	msg.type = STOP;
-
-	mutex_lock(&dev_mutex);
-	n = write(dev_pipe[1], &msg, sizeof(msg));
-	pthread_cond_wait(&dev_cond, &dev_mutex);
-	mutex_unlock(&dev_mutex);
+	event_del(&i8253_channel[0].timer);
+	event_del(&i8253_channel[1].timer);
+	event_del(&i8253_channel[2].timer);
 }
 
 void
@@ -495,5 +498,5 @@ i8253_start()
 	int i;
 	for (i = 0; i < 3; i++)
 		if (i8253_channel[i].in_use)
-			i8253_blocking_reset(i);
+			i8253_reset(i);
 }
