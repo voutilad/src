@@ -463,7 +463,7 @@ static void
 i8253_delayed_reset(int fd, short type, void *arg)
 {
 	struct i8253_channel *chn = arg;
-	log_info("%s: delayed reset of i8253 channel", __func__);
+	log_debug("%s: delayed reset of i8253 channel", __func__);
 	i8253_reset(chn);
 }
 
