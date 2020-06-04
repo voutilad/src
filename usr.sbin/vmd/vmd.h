@@ -354,6 +354,15 @@ struct vmd {
 	int			 vmd_ptmfd;
 };
 
+struct vm_dev_pipe {
+	int			 read;
+	int			 write;
+	size_t			 msg_len;
+	struct event		 read_ev;
+	pthread_mutex_t		 mutex;
+	pthread_cond_t		 cond;
+};
+
 static inline struct sockaddr_in *
 ss2sin(struct sockaddr_storage *ss)
 {
@@ -442,6 +451,8 @@ int	 vmm_pipe(struct vmd_vm *, int, void (*)(int, short, void *));
 /* vm.c */
 int	 start_vm(struct vmd_vm *, int);
 __dead void vm_shutdown(unsigned int);
+void	 vm_pipe(struct vm_dev_pipe *, size_t, void (*)(int, short, void *));
+void	 vm_pipe_send(struct vm_dev_pipe *, const void *);
 
 /* control.c */
 int	 config_init(struct vmd *);

@@ -67,41 +67,30 @@ struct mc146818 {
 
 struct mc146818 rtc;
 
-static struct event pipe_read;
-static pthread_mutex_t dev_mutex;
-static pthread_cond_t dev_cond;
-static int dev_pipe[2];
-
-enum message_type {
-	RESCHEDULE,
-};
+static struct vm_dev_pipe dev_pipe;
+typedef char pipe_msg;
 
 void rtc_reschedule_per(void);
 
+/*
+ * mc146818_pipe_handler
+ *
+ * Drains the device pipe when called and reschedules the periodic
+ * timer safely.
+ */
 static void
-pipe_message(int fd, short event, void *arg)
+mc146818_pipe_dispatch(int fd, short event, void *arg)
 {
-	size_t n;
-	int msg;
-	mutex_lock(&dev_mutex);
+	pipe_msg msg;
 
-	n = read(fd, &msg, sizeof(msg));
-	if (n < sizeof(msg)) {
-		log_warnx("%s: only got %lu bytes", __func__, n);
-	}
+	mutex_lock(&dev_pipe.mutex);
 
-	switch (msg) {
-	case RESCHEDULE:
-		log_debug("%s: rescheduling periodic timer", __func__);
-		rtc_reschedule_per();
-		break;
-	default:
-		log_warnx("%s: unknown message type: %d", __func__, msg);
-	}
+	read(fd, &msg, sizeof(pipe_msg));
+	log_debug("%s: rescheduling periodic timer", __func__);
+	rtc_reschedule_per();
 
-	pthread_cond_signal(&dev_cond);
-	mutex_unlock(&dev_mutex);
-
+	pthread_cond_signal(&dev_pipe.cond);
+	mutex_unlock(&dev_pipe.mutex);
 }
 
 /*
@@ -224,19 +213,9 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 	event_base_set(global_evbase, &rtc.per);
 
-	if (pthread_mutex_init(&dev_mutex, NULL))
-		fatal("cannot create m146818 device mutex");
-
-	if (pthread_cond_init(&dev_cond, NULL))
-		fatal("cannot create m146818 device condition variable");
-
-	if (pipe2(dev_pipe, O_NONBLOCK))
-		fatal("failed to create mc146818 device pipe");
-
-	event_set(&pipe_read, dev_pipe[0], EV_READ | EV_PERSIST,
-	    pipe_message, NULL);
-	event_base_set(global_evbase, &pipe_read);
-	event_add(&pipe_read, NULL);
+	vm_pipe(&dev_pipe, sizeof(char), mc146818_pipe_dispatch);
+	event_base_set(global_evbase, &dev_pipe.read_ev);
+	event_add(&dev_pipe.read_ev, NULL);
 }
 
 /*
@@ -268,13 +247,7 @@ rtc_reschedule_per(void)
 static void
 rtc_blocking_reschedule_per(void)
 {
-	size_t n;
-	int msg = RESCHEDULE;
-
-	mutex_lock(&dev_mutex);
-	n = write(dev_pipe[1], &msg, sizeof (msg));
-	pthread_cond_wait(&dev_cond, &dev_mutex);
-	mutex_unlock(&dev_mutex);
+	vm_pipe_send(&dev_pipe, NULL);
 }
 
 /*

@@ -49,46 +49,30 @@ struct i8253_channel i8253_channel[3];
 extern struct event_base *global_evbase;
 extern pthread_mutex_t global_evmutex;
 
-static struct event pipe_read;
-static pthread_mutex_t dev_mutex;
-static pthread_cond_t dev_cond;
-static int dev_pipe[2];
+static struct vm_dev_pipe dev_pipe;
 
-enum message_type {
-	RESET,
-};
+static void i8253_reset(uint8_t);
 
-struct device_msg {
-	enum message_type type;
-	uint8_t chn;
-};
-
-void i8253_reset(uint8_t);
-
+/*
+ * i8253_pipe_handler
+ *
+ * Reads a channel number off the device pipe and resets it.
+ *
+ */
 static void
-pipe_message(int fd, short event, void *arg)
+i8253_pipe_dispatch(int fd, short event, void *arg)
 {
-	size_t n;
-	struct device_msg msg;
+	uint8_t chn;
 
-	mutex_lock(&dev_mutex);
+	mutex_lock(&dev_pipe.mutex);
 
-	n = read(fd, &msg, sizeof(msg));
-	if (n < sizeof(msg)) {
-		log_warnx("%s: only got %lu bytes", __func__, n);
-	}
+	read(fd, &chn, sizeof(chn));
 
-	switch (msg.type) {
-	case RESET:
-		log_debug("%s: resetting chn: %u", __func__, msg.chn);
-		i8253_reset(msg.chn);
-		break;
-	default:
-		log_warnx("%s: unknown message type: %d", __func__, msg.type);
-	}
+	log_debug("%s: resetting channel: %u", __func__, chn);
+	i8253_reset(chn);
 
-	pthread_cond_signal(&dev_cond);
-	mutex_unlock(&dev_mutex);
+	pthread_cond_signal(&dev_pipe.cond);
+	mutex_unlock(&dev_pipe.mutex);
 }
 
 /*
@@ -131,18 +115,9 @@ i8253_init(uint32_t vm_id)
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
 	event_base_set(global_evbase, &i8253_channel[2].timer);
 
-	if (pthread_mutex_init(&dev_mutex, NULL))
-		fatal("failed to create i8253 device mutex");
-	if (pthread_cond_init(&dev_cond, NULL))
-		fatal("failed to create i8253 device condition variable");
-
-	if (pipe2(dev_pipe, O_NONBLOCK))
-		fatal("failed to create i8253 device pipe");
-
-	event_set(&pipe_read, dev_pipe[0], EV_READ | EV_PERSIST,
-	    pipe_message, NULL);
-	event_base_set(global_evbase, &pipe_read);
-	event_add(&pipe_read, NULL);
+	vm_pipe(&dev_pipe, sizeof(uint8_t), i8253_pipe_dispatch);
+	event_base_set(global_evbase, &dev_pipe.read_ev);
+	event_add(&dev_pipe.read_ev, NULL);
 }
 
 /*
@@ -394,29 +369,7 @@ i8253_reset(uint8_t chn)
 void
 i8253_blocking_reset(uint8_t chn)
 {
-	int ret;
-	size_t n;
-	struct timespec ts;
-	struct timeval now;
-	struct device_msg msg;
-
-	msg.type = RESET;
-	msg.chn = chn;
-
-	gettimeofday(&now, NULL);
-	ts.tv_sec = now.tv_sec + 5;
-	ts.tv_nsec = now.tv_usec * 1000UL;
-
-	mutex_lock(&dev_mutex);
-	n = write(dev_pipe[1], &msg, sizeof(msg));
-	ret = pthread_cond_timedwait(&dev_cond, &dev_mutex, &ts);
-	if (ret == ETIMEDOUT) {
-		log_info("%s: timed out waiting for i8253 reset", __func__);
-	} else if (ret) {
-		log_warnx("%s: failed to wait on condition variable: %d",
-		    __func__, ret);
-	}
-	mutex_unlock(&dev_mutex);
+	vm_pipe_send(&dev_pipe, &chn);
 }
 
 /*

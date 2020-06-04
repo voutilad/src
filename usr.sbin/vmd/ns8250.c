@@ -41,59 +41,25 @@ struct ns8250_dev com1_dev;
 extern struct event_base *global_evbase;
 extern pthread_mutex_t global_evmutex;
 
-static struct event pipe_read;
-static pthread_mutex_t dev_mutex;
-static pthread_cond_t dev_cond;
-static int dev_pipe[2];
+static struct vm_dev_pipe dev_pipe;
 
 static void com_rcv_event(int, short, void *);
 static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t);
 
-enum message_type {
-	ZERO_READ,
-};
-
-struct dev_message {
-	enum message_type type;
-	struct ns8250_dev *com;
-};
-
 static void
-pipe_message(int fd, short event, void *arg)
+ns8250_pipe_dispatch(int fd, short event, void *arg)
 {
-	size_t n;
-	struct dev_message msg;
+	char msg;
 
-	mutex_lock(&dev_mutex);
+	mutex_lock(&dev_pipe.mutex);
 
-	n = read(fd, &msg, sizeof(msg));
-	if (n < sizeof(msg)) {
-		log_warnx("%s: only got %lu bytes", __func__, n);
-	}
+	read(fd, &msg, sizeof(msg));
 
-	switch (msg.type) {
-	case ZERO_READ:
-		event_del(&msg.com->event);
-		event_add(&msg.com->wake, NULL);
-		break;
-	default:
-		log_warnx("%s: unknown message type: %d", __func__, msg.type);
-	}
+	event_del(&com1_dev.event);
+	event_add(&com1_dev.wake, NULL);
 
-	pthread_cond_signal(&dev_cond);
-	mutex_unlock(&dev_mutex);
-}
-
-static void
-send_pipe_message(struct dev_message *msg)
-{
-	size_t n;
-
-	mutex_lock(&dev_mutex);
-	n = write(dev_pipe[1], msg, sizeof(msg));
-	pthread_cond_wait(&dev_cond, &dev_mutex);
-	mutex_unlock(&dev_mutex);
-
+	pthread_cond_signal(&dev_pipe.cond);
+	mutex_unlock(&dev_pipe.mutex);
 }
 
 
@@ -179,19 +145,9 @@ ns8250_init(int fd, uint32_t vmid)
 	event_base_set(global_evbase, &com1_dev.rate);
 	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
 
-	if (pthread_mutex_init(&dev_mutex, NULL))
-		fatal("failed to create ns8250 device mutex");
-
-	if (pthread_cond_init(&dev_cond, NULL))
-		fatal("failed to create ns8250 device condition variable");
-
-	if (pipe2(dev_pipe, O_NONBLOCK))
-		fatal("failed to create ns8250 device pipe");
-
-	event_set(&pipe_read, dev_pipe[0], EV_READ | EV_PERSIST,
-	    pipe_message, NULL);
-	event_base_set(global_evbase, &pipe_read);
-	event_add(&pipe_read, NULL);
+	vm_pipe(&dev_pipe, sizeof(char), ns8250_pipe_dispatch);
+	event_base_set(global_evbase, &dev_pipe.read_ev);
+	event_add(&dev_pipe.read_ev, NULL);
 }
 
 static void
@@ -263,7 +219,6 @@ com_rcv_handle_break(struct ns8250_dev *com, uint8_t cmd)
 static void
 com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
 {
-	struct dev_message msg;
 	char buf[2];
 	ssize_t sz;
 
@@ -295,9 +250,7 @@ com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id)
 			 * so we need to relay the request to
 			 * modify the event base.
 			 */
-			msg.type = ZERO_READ;
-			msg.com = com;
-			send_pipe_message(&msg);
+			vm_pipe_send(&dev_pipe, NULL);
 		}
 		return;
 	} else if (sz != 1 && sz != 2)

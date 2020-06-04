@@ -2245,3 +2245,83 @@ translate_gva(struct vm_exit* exit, uint64_t va, uint64_t* pa, int mode)
 
 	return (0);
 }
+
+/*
+ * vm_pipe
+ *
+ * Initialize a vm_dev_pipe, setting up its file descriptors, mutex,
+ * condition variable, and event structure.
+ *
+ * Does not set an event base or add the event. This must be done by
+ * the caller.
+ *
+ * Parameters:
+ *  p: pointer to vm_dev_pipe struct to initizlize
+ *  len: size of each message this pipe will support
+ *  cb: callback to use for READ events on the read end of the pipe
+ */
+void
+vm_pipe(struct vm_dev_pipe *p, size_t len, void (*cb)(int, short, void *))
+{
+	int ret;
+	int fds[2];
+
+	memset(p, 0, sizeof(struct vm_dev_pipe));
+	ret = pthread_mutex_init(&p->mutex, NULL);
+	if (ret) {
+		fatal("failed to create vm_dev_pipe mutex");
+	}
+
+	ret = pthread_cond_init(&p->cond, NULL);
+	if (ret) {
+		fatal("failed to create vm_dev_pipe condition variable");
+	}
+
+	ret = pipe(fds);
+	if (ret) {
+		fatal("failed to create vm_dev_pipe pipe");
+	}
+	p->read = fds[0];
+	p->write = fds[1];
+
+	if (len) {
+		p->msg_len = len;
+	} else {
+		p->msg_len = sizeof(char);
+	}
+
+	event_set(&p->read_ev, p->read, EV_READ | EV_PERSIST, cb, NULL);
+}
+
+/*
+ * vm_pipe_send
+ *
+ * Synchronously send a message to an emulated device vie the provided
+ * vm_dev_pipe. Currently only sends char-sized messages as only one
+ * emulated device (i8253) needs any specific message information (the
+ * channel number), so make sure readers pull 1 char off when reading.
+ *
+ * Parameters:
+ *  p: pointer to initialized vm_dev_pipe
+ *  msg: pointer to the message data to send down the pipe
+ */
+void
+vm_pipe_send(struct vm_dev_pipe *p, const void *msg)
+{
+	int ret;
+	char dummy = 1;
+
+	mutex_lock(&p->mutex);
+
+	if (msg) {
+		write(p->write, msg, p->msg_len);
+	} else {
+		write(p->write, &dummy, sizeof(char));
+	}
+
+	ret = pthread_cond_wait(&p->cond, &p->mutex);
+	if (ret) {
+		fatal("failed to wait on vm_dev_pipe's thread condition");
+	}
+	mutex_unlock(&p->mutex);
+}
