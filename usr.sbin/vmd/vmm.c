@@ -716,7 +716,8 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id, pid_t *pid)
 		close(fds[0]);
 		close(PROC_PARENT_SOCK_FILENO);
 
-		event_reinit(global_evbase);
+		event_base_free(global_evbase);
+		global_evbase = event_base_new();
 
 		ret = start_vm(vm, fds[1]);
 

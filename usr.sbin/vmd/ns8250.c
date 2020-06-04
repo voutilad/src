@@ -715,7 +715,8 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 void
 ns8250_stop()
 {
-	event_del(&com1_dev.rate);
+	event_del(&com1_dev.event);
+	event_del(&com1_dev.wake);
 	evtimer_del(&com1_dev.rate);
 }
 

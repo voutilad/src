@@ -51,7 +51,8 @@ extern pthread_mutex_t global_evmutex;
 
 static struct vm_dev_pipe dev_pipe;
 
-static void i8253_reset(uint8_t);
+static void i8253_reset(struct i8253_channel *);
+static void i8253_delayed_reset(int, short, void*);
 
 /*
  * i8253_pipe_handler
@@ -69,7 +70,7 @@ i8253_pipe_dispatch(int fd, short event, void *arg)
 	read(fd, &chn, sizeof(chn));
 
 	log_debug("%s: resetting channel: %u", __func__, chn);
-	i8253_reset(chn);
+	i8253_reset(&i8253_channel[chn]);
 
 	pthread_cond_signal(&dev_pipe.cond);
 	mutex_unlock(&dev_pipe.mutex);
@@ -114,6 +115,15 @@ i8253_init(uint32_t vm_id)
 
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
 	event_base_set(global_evbase, &i8253_channel[2].timer);
+
+	evtimer_set(&i8253_channel[0].reset, i8253_delayed_reset, &i8253_channel[0]);
+	event_base_set(global_evbase, &i8253_channel[0].reset);
+
+	evtimer_set(&i8253_channel[1].reset, i8253_delayed_reset, &i8253_channel[1]);
+	event_base_set(global_evbase, &i8253_channel[1].reset);
+
+	evtimer_set(&i8253_channel[2].reset, i8253_delayed_reset, &i8253_channel[2]);
+	event_base_set(global_evbase, &i8253_channel[2].reset);
 
 	vm_pipe(&dev_pipe, sizeof(uint8_t), i8253_pipe_dispatch);
 	event_base_set(global_evbase, &dev_pipe.read_ev);
@@ -345,24 +355,24 @@ ret:
  * Resets the i8253's counter timer
  *
  * Parameters:
- *  chn: counter ID. Only channel ID 0 is presently emulated.
+ *  chn: pointer to i8253_channel struct to reset
  */
 void
-i8253_reset(uint8_t chn)
+i8253_reset(struct i8253_channel *chn)
 {
 	struct timeval tv;
 
 	mutex_lock(&global_evmutex);
-	if (evtimer_pending(&i8253_channel[chn].timer, NULL))
-	    evtimer_del(&i8253_channel[chn].timer);
+	if (evtimer_pending(&chn->timer, NULL))
+	    evtimer_del(&chn->timer);
 	timerclear(&tv);
 
-	i8253_channel[chn].in_use = 1;
-	i8253_channel[chn].state = 0;
-	tv.tv_usec = (i8253_channel[chn].start * NS_PER_TICK) / 1000;
-	clock_gettime(CLOCK_MONOTONIC, &i8253_channel[chn].ts);
+	chn->in_use = 1;
+	chn->state = 0;
+	tv.tv_usec = (chn->start * NS_PER_TICK) / 1000;
+	clock_gettime(CLOCK_MONOTONIC, &chn->ts);
 
-	evtimer_add(&i8253_channel[chn].timer, &tv);
+	evtimer_add(&chn->timer, &tv);
 	mutex_unlock(&global_evmutex);
 }
 
@@ -437,7 +447,7 @@ i8253_restore(int fd, uint32_t vm_id)
 		    &i8253_channel[i]);
 		event_base_set(global_evbase, &i8253_channel[i].timer);
 
-		i8253_reset(i);
+		i8253_reset(&i8253_channel[i]);
 	}
 	return (0);
 }
@@ -450,11 +460,27 @@ i8253_stop()
 	evtimer_del(&i8253_channel[2].timer);
 }
 
+static void
+i8253_delayed_reset(int fd, short type, void *arg)
+{
+	struct i8253_channel *chn = arg;
+	i8253_reset(chn);
+}
+
 void
 i8253_start()
 {
 	int i;
+	struct timeval tv;
+
 	for (i = 0; i < 3; i++)
-		if (i8253_channel[i].in_use)
-			i8253_reset(i);
+		if (i8253_channel[i].in_use) {
+			if (i8253_channel[i].mode != TIMER_INTTC) {
+				timerclear(&tv);
+				tv.tv_usec = 10000;
+				evtimer_add(&i8253_channel[i].reset, NULL);
+			} else {
+				i8253_reset(&i8253_channel[i]);
+			}
+		}
 }

@@ -2315,24 +2315,23 @@ void
 vm_pipe_send_timeout(struct vm_dev_pipe *p, const void *msg,
     struct timeval *tv)
 {
-	int dummy = 1;
+	int ret;
+	char dummy = 1;
 	struct timeval now;
 	struct timespec ts;
-
-	gettimeofday(&now, NULL);
-	ts.tv_sec = now.tv_sec + tv->tv_sec;
-	ts.tv_nsec = (now.tv_usec + tv->tv_usec) * 1000UL;
-		int ret;
 
 	mutex_lock(&p->mutex);
 
 	if (msg) {
 		write(p->write, msg, p->msg_len);
 	} else {
-		write(p->write, &dummy, sizeof(char));
+		write(p->write, &dummy, sizeof(dummy));
 	}
 
 	if (tv) {
+		gettimeofday(&now, NULL);
+		ts.tv_sec = now.tv_sec + tv->tv_sec;
+		ts.tv_nsec = (now.tv_usec + tv->tv_usec) * 1000UL;
 		ret = pthread_cond_timedwait(&p->cond, &p->mutex, &ts);
 	} else {
 		ret = pthread_cond_wait(&p->cond, &p->mutex);
