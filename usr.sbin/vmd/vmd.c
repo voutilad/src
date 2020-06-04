@@ -33,7 +33,6 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
-#include <pthread.h>
 #include <pwd.h>
 #include <signal.h>
 #include <syslog.h>

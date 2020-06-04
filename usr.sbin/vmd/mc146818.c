@@ -23,7 +23,6 @@
 #include <machine/vmmvar.h>
 
 #include <event.h>
-#include <fcntl.h>
 #include <stddef.h>
 #include <string.h>
 #include <time.h>
@@ -142,7 +141,7 @@ rtc_fire1(int fd, short type, void *arg)
 	}
 
 	mutex_lock(&global_evmutex);
-	event_add(&rtc.sec, &rtc.sec_tv);
+	evtimer_add(&rtc.sec, &rtc.sec_tv);
 	mutex_unlock(&global_evmutex);
 }
 
@@ -165,7 +164,7 @@ rtc_fireper(int fd, short type, void *arg)
 	vcpu_deassert_pic_irq((ptrdiff_t)arg, 0, 8);
 
 	mutex_lock(&global_evmutex);
-	event_add(&rtc.per, &rtc.per_tv);
+	evtimer_add(&rtc.per, &rtc.per_tv);
 	mutex_unlock(&global_evmutex);
 }
 

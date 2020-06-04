@@ -28,7 +28,6 @@
 #include <stddef.h>
 #include <time.h>
 #include <unistd.h>
-#include <fcntl.h>
 
 #include "i8253.h"
 #include "proc.h"
@@ -464,6 +463,7 @@ static void
 i8253_delayed_reset(int fd, short type, void *arg)
 {
 	struct i8253_channel *chn = arg;
+	log_info("%s: delayed reset of i8253 channel", __func__);
 	i8253_reset(chn);
 }
 
@@ -478,7 +478,7 @@ i8253_start()
 			if (i8253_channel[i].mode != TIMER_INTTC) {
 				timerclear(&tv);
 				tv.tv_usec = 10000;
-				evtimer_add(&i8253_channel[i].reset, NULL);
+				evtimer_add(&i8253_channel[i].reset, &tv);
 			} else {
 				i8253_reset(&i8253_channel[i]);
 			}

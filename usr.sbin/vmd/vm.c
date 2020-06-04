@@ -108,7 +108,6 @@ extern struct vmd *env;
 extern char *__progname;
 
 extern struct event_base *global_evbase;
-extern pthread_mutex_t global_evmutex;
 
 pthread_mutex_t threadmutex;
 pthread_cond_t threadcond;
@@ -425,7 +424,7 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 			break;
 
 #if DEBUG > 1
-		log_info("%s: got imsg %d from %s",
+		log_debug("%s: got imsg %d from %s",
 		    __func__, imsg.hdr.type,
 		    vm->vm_params.vmc_params.vcp_name);
 #endif

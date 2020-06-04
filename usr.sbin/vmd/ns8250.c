@@ -24,7 +24,6 @@
 
 #include <errno.h>
 #include <event.h>
-#include <fcntl.h>
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
@@ -136,7 +135,7 @@ ns8250_init(int fd, uint32_t vmid)
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
 	event_base_set(global_evbase, &com1_dev.wake);
-	event_add(&com1_dev.event, NULL);
+	event_add(&com1_dev.wake, NULL);
 
 	/* Rate limiter for simulating baud rate */
 	timerclear(&com1_dev.rate_tv);
