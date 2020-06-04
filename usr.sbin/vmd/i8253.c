@@ -27,6 +27,7 @@
 #include <stddef.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "i8253.h"
 #include "proc.h"
@@ -46,6 +47,52 @@ struct i8253_channel i8253_channel[3];
 
 extern struct event_base *global_evbase;
 extern pthread_mutex_t global_evmutex;
+
+static struct event pipe_read;
+static pthread_mutex_t dev_mutex;
+static pthread_cond_t dev_cond;
+static int dev_pipe[2];
+
+enum message_type {
+	RESET,
+	STOP
+};
+
+struct device_msg {
+	enum message_type type;
+	uint8_t chn;
+};
+
+void i8253_reset(uint8_t);
+
+static void
+pipe_message(int fd, short event, void *arg)
+{
+	size_t n;
+	struct device_msg msg;
+
+	mutex_lock(&dev_mutex);
+
+	n = read(fd, &msg, sizeof(msg));
+	if (n < sizeof(msg)) {
+		log_warnx("%s: only got %lu bytes", __func__, n);
+	}
+
+	switch (msg.type) {
+	case RESET:
+		log_debug("%s: resetting chn: %u", __func__, msg.chn);
+		i8253_reset(msg.chn);
+		break;
+	case STOP:
+		event_del(&i8253_channel[0].timer);
+		event_del(&i8253_channel[1].timer);
+		event_del(&i8253_channel[2].timer);
+		break;
+	}
+
+	pthread_cond_signal(&dev_cond);
+	mutex_unlock(&dev_mutex);
+}
 
 /*
  * i8253_init
@@ -86,6 +133,19 @@ i8253_init(uint32_t vm_id)
 
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
 	event_base_set(global_evbase, &i8253_channel[2].timer);
+
+	if (pthread_mutex_init(&dev_mutex, NULL))
+		fatal("failed to create i8253 device mutex");
+	if (pthread_cond_init(&dev_cond, NULL))
+		fatal("failed to create i8253 device condition variable");
+
+	if (pipe2(dev_pipe, O_NONBLOCK))
+		fatal("failed to create i8253 device pipe");
+
+	event_set(&pipe_read, dev_pipe[0], EV_READ | EV_PERSIST,
+	    pipe_message, NULL);
+	event_base_set(global_evbase, &pipe_read);
+	event_add(&pipe_read, NULL);
 }
 
 /*
@@ -280,7 +340,7 @@ vcpu_exit_i8253(struct vm_run_params *vrp)
 				    sel, i8253_channel[sel].mode,
 				    i8253_channel[sel].start);
 
-				i8253_reset(sel);
+				i8253_blocking_reset(sel);
 			}
 		} else {
 			if (i8253_channel[sel].rbs) {
@@ -332,6 +392,22 @@ i8253_reset(uint8_t chn)
 
 	evtimer_add(&i8253_channel[chn].timer, &tv);
 	mutex_unlock(&global_evmutex);
+}
+
+void
+i8253_blocking_reset(uint8_t chn)
+{
+	size_t n;
+	struct device_msg msg;
+
+
+	msg.type = RESET;
+	msg.chn = chn;
+
+	mutex_lock(&dev_mutex);
+	n = write(dev_pipe[1], &msg, sizeof (msg));
+	pthread_cond_wait(&dev_cond, &dev_mutex);
+	mutex_unlock(&dev_mutex);
 }
 
 /*
@@ -394,7 +470,7 @@ i8253_restore(int fd, uint32_t vm_id)
 		    &i8253_channel[i]);
 		event_base_set(global_evbase, &i8253_channel[i].timer);
 
-		i8253_reset(i);
+		i8253_blocking_reset(i);
 	}
 	return (0);
 }
@@ -402,11 +478,15 @@ i8253_restore(int fd, uint32_t vm_id)
 void
 i8253_stop()
 {
-	int i;
-	mutex_lock(&global_evmutex);
-	for (i = 0; i < 3; i++)
-		evtimer_del(&i8253_channel[i].timer);
-	mutex_unlock(&global_evmutex);
+	size_t n;
+	struct device_msg msg;
+
+	msg.type = STOP;
+
+	mutex_lock(&dev_mutex);
+	n = write(dev_pipe[1], &msg, sizeof(msg));
+	pthread_cond_wait(&dev_cond, &dev_mutex);
+	mutex_unlock(&dev_mutex);
 }
 
 void
@@ -415,5 +495,5 @@ i8253_start()
 	int i;
 	for (i = 0; i < 3; i++)
 		if (i8253_channel[i].in_use)
-			i8253_reset(i);
+			i8253_blocking_reset(i);
 }
