@@ -46,8 +46,6 @@
 #include "proc.h"
 #include "vmd.h"
 
-extern struct event_base *global_evbase;
-
 int	 priv_dispatch_parent(int, struct privsep_proc *, struct imsg *);
 void	 priv_run(struct privsep *, struct privsep_proc *, void *);
 

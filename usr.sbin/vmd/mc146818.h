@@ -16,7 +16,6 @@
  */
 
 void mc146818_init(uint32_t, uint64_t, uint64_t);
-void mc146818_init_thread(void);
 uint8_t vcpu_exit_mc146818(struct vm_run_params *vrp);
 void dump_mc146818(void);
 int mc146818_dump(int);

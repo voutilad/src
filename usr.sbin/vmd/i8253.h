@@ -44,7 +44,6 @@ struct i8253_channel {
 };
 
 void i8253_init(uint32_t);
-void i8253_init_thread(void);
 void i8253_blocking_reset(uint8_t);
 void i8253_fire(int, short, void *);
 int i8253_dump(int);
