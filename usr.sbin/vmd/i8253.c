@@ -446,7 +446,8 @@ i8253_stop()
 {
 	int i;
 	for (i = 0; i < 3; i++)
-		evtimer_del(&i8253_channel[i].timer);
+		if (evtimer_del(&i8253_channel[i].timer))
+			log_info("%s: failed to delete timer event for channel %d", __func__, i);
 }
 
 static void
@@ -473,7 +474,7 @@ i8253_start()
 		if (i8253_channel[i].in_use) {
 			if (i8253_channel[i].mode != TIMER_INTTC) {
 				timerclear(&tv);
-				tv.tv_usec = 10000;
+				tv.tv_usec = 100;
 				evtimer_add(&i8253_channel[i].reset, &tv);
 			} else {
 				i8253_reset(i);
