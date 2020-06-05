@@ -365,8 +365,7 @@ enum pipe_msg_type {
 	I8253_RESET_CHAN_1,
 	I8253_RESET_CHAN_2,
 	NS8250_ZERO_READ,
-	MC146818_RESCHEDULE_PER,
-
+	MC146818_RESCHEDULE_PER
 };
 
 static inline struct sockaddr_in *
