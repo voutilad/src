@@ -357,10 +357,16 @@ struct vmd {
 struct vm_dev_pipe {
 	int			 read;
 	int			 write;
-	size_t			 msg_len;
 	struct event		 read_ev;
-	pthread_mutex_t		 mutex;
-	pthread_cond_t		 cond;
+};
+
+enum pipe_msg_type {
+	I8253_RESET_CHAN_0,
+	I8253_RESET_CHAN_1,
+	I8253_RESET_CHAN_2,
+	NS8250_ZERO_READ,
+	MC146818_RESCHEDULE_PER,
+
 };
 
 static inline struct sockaddr_in *
@@ -451,10 +457,8 @@ int	 vmm_pipe(struct vmd_vm *, int, void (*)(int, short, void *));
 /* vm.c */
 int	 start_vm(struct vmd_vm *, int);
 __dead void vm_shutdown(unsigned int);
-void	 vm_pipe(struct vm_dev_pipe *, size_t, void (*)(int, short, void *));
-void	 vm_pipe_send(struct vm_dev_pipe *, const void *);
-void	 vm_pipe_send_timeout(struct vm_dev_pipe *, const void *,
-            struct timeval *);
+void	 vm_pipe(struct vm_dev_pipe *, void (*)(int, short, void *));
+void	 vm_pipe_send(struct vm_dev_pipe *, uint8_t);
 
 /* control.c */
 int	 config_init(struct vmd *);

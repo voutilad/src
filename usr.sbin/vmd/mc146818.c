@@ -66,7 +66,6 @@ struct mc146818 {
 struct mc146818 rtc;
 
 static struct vm_dev_pipe dev_pipe;
-typedef char pipe_msg;
 
 static void rtc_reschedule_per(void);
 
@@ -79,16 +78,19 @@ static void rtc_reschedule_per(void);
 static void
 mc146818_pipe_dispatch(int fd, short event, void *arg)
 {
-	pipe_msg msg;
+	size_t n;
+	uint8_t msg;
 
-	mutex_lock(&dev_pipe.mutex);
+	n = read(fd, &msg, sizeof(msg));
+	if (n != sizeof(msg))
+		fatal("failed to read from device pipe");
 
-	read(fd, &msg, sizeof(pipe_msg));
-	log_debug("%s: rescheduling periodic timer", __func__);
-	rtc_reschedule_per();
-
-	pthread_cond_signal(&dev_pipe.cond);
-	mutex_unlock(&dev_pipe.mutex);
+	if (msg == MC146818_RESCHEDULE_PER) {
+		log_debug("%s: rescheduling periodic timer", __func__);
+		rtc_reschedule_per();
+	} else {
+		fatal("unknown pipe message %u", msg);
+	}
 }
 
 /*
@@ -207,7 +209,7 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 	event_base_set(global_evbase, &rtc.per);
 
-	vm_pipe(&dev_pipe, sizeof(char), mc146818_pipe_dispatch);
+	vm_pipe(&dev_pipe, mc146818_pipe_dispatch);
 	event_base_set(global_evbase, &dev_pipe.read_ev);
 	event_add(&dev_pipe.read_ev, NULL);
 }
@@ -236,12 +238,6 @@ rtc_reschedule_per(void)
 	}
 }
 
-static void
-rtc_blocking_reschedule_per(void)
-{
-	vm_pipe_send(&dev_pipe, NULL);
-}
-
 /*
  * rtc_update_rega
  *
@@ -259,7 +255,7 @@ rtc_update_rega(uint32_t data)
 
 	rtc.regs[MC_REGA] = data;
 	if ((rtc.regs[MC_REGA] ^ data) & 0x0f)
-		rtc_blocking_reschedule_per();
+		vm_pipe_send(&dev_pipe, MC146818_RESCHEDULE_PER);
 }
 
 /*
@@ -282,7 +278,7 @@ rtc_update_regb(uint32_t data)
 	rtc.regs[MC_REGB] = data;
 
 	if (data & MC_REGB_PIE)
-		rtc_blocking_reschedule_per();
+		vm_pipe_send(&dev_pipe, MC146818_RESCHEDULE_PER);
 }
 
 /*

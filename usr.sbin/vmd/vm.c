@@ -2256,25 +2256,17 @@ translate_gva(struct vm_exit* exit, uint64_t va, uint64_t* pa, int mode)
  *
  * Parameters:
  *  p: pointer to vm_dev_pipe struct to initizlize
- *  len: size of each message this pipe will support
+ *  msg_len: size of each message this pipe will support, if set to
+ *   zero, default will be sizeof(char)
  *  cb: callback to use for READ events on the read end of the pipe
  */
 void
-vm_pipe(struct vm_dev_pipe *p, size_t len, void (*cb)(int, short, void *))
+vm_pipe(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
 {
 	int ret;
 	int fds[2];
 
 	memset(p, 0, sizeof(struct vm_dev_pipe));
-	ret = pthread_mutex_init(&p->mutex, NULL);
-	if (ret) {
-		fatal("failed to create vm_dev_pipe mutex");
-	}
-
-	ret = pthread_cond_init(&p->cond, NULL);
-	if (ret) {
-		fatal("failed to create vm_dev_pipe condition variable");
-	}
 
 	ret = pipe(fds);
 	if (ret) {
@@ -2282,12 +2274,6 @@ vm_pipe(struct vm_dev_pipe *p, size_t len, void (*cb)(int, short, void *))
 	}
 	p->read = fds[0];
 	p->write = fds[1];
-
-	if (len) {
-		p->msg_len = len;
-	} else {
-		p->msg_len = sizeof(char);
-	}
 
 	event_set(&p->read_ev, p->read, EV_READ | EV_PERSIST, cb, NULL);
 }
@@ -2305,40 +2291,10 @@ vm_pipe(struct vm_dev_pipe *p, size_t len, void (*cb)(int, short, void *))
  *  msg: pointer to the message data to send down the pipe
  */
 void
-vm_pipe_send(struct vm_dev_pipe *p, const void *msg)
+vm_pipe_send(struct vm_dev_pipe *p, uint8_t msg)
 {
-	vm_pipe_send_timeout(p, msg, NULL);
-}
-
-void
-vm_pipe_send_timeout(struct vm_dev_pipe *p, const void *msg,
-    struct timeval *tv)
-{
-	int ret;
-	char dummy = 1;
-	struct timeval now;
-	struct timespec ts;
-
-	mutex_lock(&p->mutex);
-
-	if (msg) {
-		write(p->write, msg, p->msg_len);
-	} else {
-		write(p->write, &dummy, sizeof(dummy));
-	}
-
-	if (tv) {
-		gettimeofday(&now, NULL);
-		ts.tv_sec = now.tv_sec + tv->tv_sec;
-		ts.tv_nsec = (now.tv_usec + tv->tv_usec) * 1000UL;
-		ret = pthread_cond_timedwait(&p->cond, &p->mutex, &ts);
-	} else {
-		ret = pthread_cond_wait(&p->cond, &p->mutex);
-	}
-
-	if (ret) {
-		fatal("failed to wait on vm_dev_pipe's thread condition");
-	}
-
-	mutex_unlock(&p->mutex);
+	size_t n;
+	n = write(p->write, &msg, sizeof(msg));
+	if (n != sizeof(msg))
+		fatal("failed to write to device pipe");
 }

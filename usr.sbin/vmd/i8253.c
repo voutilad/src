@@ -49,7 +49,7 @@ extern struct event_base *global_evbase;
 
 static struct vm_dev_pipe dev_pipe;
 
-static void i8253_reset(struct i8253_channel *);
+static void i8253_reset(uint8_t);
 static void i8253_delayed_reset(int, short, void*);
 
 /*
@@ -61,17 +61,26 @@ static void i8253_delayed_reset(int, short, void*);
 static void
 i8253_pipe_dispatch(int fd, short event, void *arg)
 {
-	uint8_t chn;
+	size_t n;
+	uint8_t msg;
 
-	mutex_lock(&dev_pipe.mutex);
+	n = read(fd, &msg, sizeof(msg));
+	if (n != sizeof(msg))
+		fatal("failed to read from device pipe");
 
-	read(fd, &chn, sizeof(chn));
-
-	log_debug("%s: resetting channel: %u", __func__, chn);
-	i8253_reset(&i8253_channel[chn]);
-
-	pthread_cond_signal(&dev_pipe.cond);
-	mutex_unlock(&dev_pipe.mutex);
+	switch (msg) {
+	case I8253_RESET_CHAN_0:
+		i8253_reset(0);
+		break;
+	case I8253_RESET_CHAN_1:
+		i8253_reset(1);
+		break;
+	case I8253_RESET_CHAN_2:
+		i8253_reset(2);
+		break;
+	default:
+		fatal("unknown pipe message %u", msg);
+	}
 }
 
 /*
@@ -123,7 +132,7 @@ i8253_init(uint32_t vm_id)
 	evtimer_set(&i8253_channel[2].reset, i8253_delayed_reset, &i8253_channel[2]);
 	event_base_set(global_evbase, &i8253_channel[2].reset);
 
-	vm_pipe(&dev_pipe, sizeof(uint8_t), i8253_pipe_dispatch);
+	vm_pipe(&dev_pipe, i8253_pipe_dispatch);
 	event_base_set(global_evbase, &dev_pipe.read_ev);
 	event_add(&dev_pipe.read_ev, NULL);
 }
@@ -320,7 +329,7 @@ vcpu_exit_i8253(struct vm_run_params *vrp)
 				    sel, i8253_channel[sel].mode,
 				    i8253_channel[sel].start);
 
-				i8253_blocking_reset(sel);
+				vm_pipe_send(&dev_pipe, sel);
 			}
 		} else {
 			if (i8253_channel[sel].rbs) {
@@ -353,34 +362,21 @@ ret:
  * Resets the i8253's counter timer
  *
  * Parameters:
- *  chn: pointer to i8253_channel struct to reset
+ *  chn: counter ID. Only channel ID 0 is presently emulated.
  */
 void
-i8253_reset(struct i8253_channel *chn)
+i8253_reset(uint8_t chn)
 {
 	struct timeval tv;
 
-	if (evtimer_pending(&chn->timer, NULL))
-	    evtimer_del(&chn->timer);
+	evtimer_del(&i8253_channel[chn].timer);
 	timerclear(&tv);
 
-	chn->in_use = 1;
-	chn->state = 0;
-	tv.tv_usec = (chn->start * NS_PER_TICK) / 1000;
-	clock_gettime(CLOCK_MONOTONIC, &chn->ts);
-
-	evtimer_add(&chn->timer, &tv);
-}
-
-void
-i8253_blocking_reset(uint8_t chn)
-{
-	struct timeval tv;
-	timerclear(&tv);
-	tv.tv_sec = 5;
-
-	/* i8253 resets happen very frequently and can easily block pausing */
-	vm_pipe_send_timeout(&dev_pipe, &chn, &tv);
+	i8253_channel[chn].in_use = 1;
+	i8253_channel[chn].state = 0;
+	tv.tv_usec = (i8253_channel[chn].start * NS_PER_TICK) / 1000;
+	clock_gettime(CLOCK_MONOTONIC, &i8253_channel[chn].ts);
+	evtimer_add(&i8253_channel[chn].timer, &tv);
 }
 
 /*
@@ -440,8 +436,7 @@ i8253_restore(int fd, uint32_t vm_id)
 		evtimer_set(&i8253_channel[i].timer, i8253_fire,
 		    &i8253_channel[i]);
 		event_base_set(global_evbase, &i8253_channel[i].timer);
-
-		i8253_reset(&i8253_channel[i]);
+		i8253_reset(i);
 	}
 	return (0);
 }
@@ -457,9 +452,15 @@ i8253_stop()
 static void
 i8253_delayed_reset(int fd, short type, void *arg)
 {
+	int i;
 	struct i8253_channel *chn = arg;
-	log_debug("%s: delayed reset of i8253 channel", __func__);
-	i8253_reset(chn);
+
+	for (i = 0; i < 3; i++) {
+		if (chn == &i8253_channel[i]) {
+			i8253_reset(i);
+			return;
+		}
+	}
 }
 
 void
@@ -475,7 +476,7 @@ i8253_start()
 				tv.tv_usec = 10000;
 				evtimer_add(&i8253_channel[i].reset, &tv);
 			} else {
-				i8253_reset(&i8253_channel[i]);
+				i8253_reset(i);
 			}
 		}
 }
