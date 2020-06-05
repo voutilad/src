@@ -1945,6 +1945,10 @@ vcpu_assert_pic_irq(uint32_t vm_id, uint32_t vcpu_id, int irq)
 {
 	int ret;
 
+	/* Our event loop thread may enter while paused, so check and bail if so. */
+	if (current_vm->vm_state & VM_STATE_PAUSED)
+		return;
+
 	i8259_assert_irq(irq);
 
 	if (i8259_is_pending()) {
@@ -1978,6 +1982,10 @@ vcpu_assert_pic_irq(uint32_t vm_id, uint32_t vcpu_id, int irq)
 void
 vcpu_deassert_pic_irq(uint32_t vm_id, uint32_t vcpu_id, int irq)
 {
+	/* Our event loop thread may enter while paused, so check and bail if so. */
+	if (current_vm->vm_state & VM_STATE_PAUSED)
+		return;
+
 	i8259_deassert_irq(irq);
 
 	if (!i8259_is_pending()) {
