@@ -64,7 +64,6 @@ int opentap(char *);
 
 extern struct vmd *env;
 
-extern pthread_mutex_t global_evmutex;
 extern struct event_base *global_evbase;
 
 static struct privsep_proc procs[] = {
@@ -83,12 +82,10 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	if (config_init(ps->ps_env) == -1)
 		fatal("failed to initialize configuration");
 
-	mutex_lock(&global_evmutex);
 	signal_del(&ps->ps_evsigchld);
 	signal_set(&ps->ps_evsigchld, SIGCHLD, vmm_sighdlr, ps);
 	event_base_set(global_evbase, &ps->ps_evsigchld);
 	signal_add(&ps->ps_evsigchld, NULL);
-	mutex_unlock(&global_evmutex);
 
 	/*
 	 * pledge in the vmm process:

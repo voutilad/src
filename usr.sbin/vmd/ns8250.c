@@ -38,7 +38,6 @@ extern char *__progname;
 struct ns8250_dev com1_dev;
 
 extern struct event_base *global_evbase;
-extern pthread_mutex_t global_evmutex;
 
 static struct vm_dev_pipe dev_pipe;
 

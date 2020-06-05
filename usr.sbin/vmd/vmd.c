@@ -75,7 +75,6 @@ static struct privsep_proc procs[] = {
 	{ "vmm",	PROC_VMM,	vmd_dispatch_vmm, vmm, vmm_shutdown },
 };
 
-pthread_mutex_t global_evmutex;
 struct event_base *global_evbase;
 struct event staggered_start_timer;
 
@@ -821,10 +820,6 @@ main(int argc, char **argv)
 	ps->ps_instance = proc_instance;
 	if (title != NULL)
 		ps->ps_title[proc_id] = title;
-
-	if (pthread_mutex_init(&global_evmutex, NULL)) {
-		fatal("can't initialize global pthread_mutex");
-	}
 
 	/* only the parent returns */
 	proc_init(ps, procs, nitems(procs), env->vmd_debug, argc0, argv,

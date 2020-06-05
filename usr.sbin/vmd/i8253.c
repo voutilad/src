@@ -46,7 +46,6 @@ extern char *__progname;
 struct i8253_channel i8253_channel[3];
 
 extern struct event_base *global_evbase;
-extern pthread_mutex_t global_evmutex;
 
 static struct vm_dev_pipe dev_pipe;
 
@@ -361,7 +360,6 @@ i8253_reset(struct i8253_channel *chn)
 {
 	struct timeval tv;
 
-	mutex_lock(&global_evmutex);
 	if (evtimer_pending(&chn->timer, NULL))
 	    evtimer_del(&chn->timer);
 	timerclear(&tv);
@@ -372,7 +370,6 @@ i8253_reset(struct i8253_channel *chn)
 	clock_gettime(CLOCK_MONOTONIC, &chn->ts);
 
 	evtimer_add(&chn->timer, &tv);
-	mutex_unlock(&global_evmutex);
 }
 
 void
@@ -409,9 +406,7 @@ i8253_fire(int fd, short type, void *arg)
 	if (ctr->mode != TIMER_INTTC) {
 		timerclear(&tv);
 		tv.tv_usec = (ctr->start * NS_PER_TICK) / 1000;
-		mutex_lock(&global_evmutex);
 		evtimer_add(&ctr->timer, &tv);
-		mutex_unlock(&global_evmutex);
 	} else
 		ctr->state = 1;
 }
@@ -454,9 +449,9 @@ i8253_restore(int fd, uint32_t vm_id)
 void
 i8253_stop()
 {
-	evtimer_del(&i8253_channel[0].timer);
-	evtimer_del(&i8253_channel[1].timer);
-	evtimer_del(&i8253_channel[2].timer);
+	int i;
+	for (i = 0; i < 3; i++)
+		evtimer_del(&i8253_channel[i].timer);
 }
 
 static void

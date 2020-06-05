@@ -51,7 +51,6 @@
 #define TOBCD(x)	(((x) / 10 * 16) + ((x) % 10))
 
 extern struct event_base *global_evbase;
-extern pthread_mutex_t global_evmutex;
 
 struct mc146818 {
 	time_t now;
@@ -69,7 +68,7 @@ struct mc146818 rtc;
 static struct vm_dev_pipe dev_pipe;
 typedef char pipe_msg;
 
-void rtc_reschedule_per(void);
+static void rtc_reschedule_per(void);
 
 /*
  * mc146818_pipe_handler
@@ -140,9 +139,7 @@ rtc_fire1(int fd, short type, void *arg)
 		vmmci_ctl(VMMCI_SYNCRTC);
 	}
 
-	mutex_lock(&global_evmutex);
 	evtimer_add(&rtc.sec, &rtc.sec_tv);
-	mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -163,9 +160,7 @@ rtc_fireper(int fd, short type, void *arg)
 	vcpu_assert_pic_irq((ptrdiff_t)arg, 0, 8);
 	vcpu_deassert_pic_irq((ptrdiff_t)arg, 0, 8);
 
-	mutex_lock(&global_evmutex);
 	evtimer_add(&rtc.per, &rtc.per_tv);
-	mutex_unlock(&global_evmutex);
 }
 
 /*
@@ -223,7 +218,7 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
  * Reschedule the periodic interrupt firing rate, based on the currently
  * selected REGB values.
  */
-void
+static void
 rtc_reschedule_per(void)
 {
 	uint16_t rate;
@@ -234,12 +229,10 @@ rtc_reschedule_per(void)
 		us = (1.0 / rate) * 1000000;
 		rtc.per_tv.tv_usec = us;
 
-		mutex_lock(&global_evmutex);
 		if (evtimer_pending(&rtc.per, NULL))
 			evtimer_del(&rtc.per);
 
 		evtimer_add(&rtc.per, &rtc.per_tv);
-		mutex_unlock(&global_evmutex);
 	}
 }
 

@@ -55,7 +55,6 @@ struct vioscsi_dev *vioscsi;
 struct vmmci_dev vmmci;
 
 extern struct event_base *global_evbase;
-extern pthread_mutex_t global_evmutex;
 
 int nr_vionet;
 int nr_vioblk;
@@ -1590,9 +1589,7 @@ vmmci_ctl(unsigned int cmd)
 
 		/* Add ACK timeout */
 		tv.tv_sec = VMMCI_TIMEOUT;
-		mutex_lock(&global_evmutex);
 		evtimer_add(&vmmci.timeout, &tv);
-		mutex_unlock(&global_evmutex);
 		break;
 	case VMMCI_SYNCRTC:
 		if (vmmci.cfg.guest_feature & VMMCI_F_SYNCRTC) {
@@ -1633,9 +1630,7 @@ vmmci_ack(unsigned int cmd)
 			    vmmci.vm_id);
 			tv.tv_sec = VMMCI_TIMEOUT;
 
-			mutex_lock(&global_evmutex);
 			evtimer_add(&vmmci.timeout, &tv);
-			mutex_unlock(&global_evmutex);
 			return;
 		}
 		/* FALLTHROUGH */
@@ -1647,7 +1642,6 @@ vmmci_ack(unsigned int cmd)
 		 * rc.shutdown on the VM), so increase the timeout before
 		 * killing it forcefully.
 		 */
-		mutex_lock(&global_evmutex);
 		if (cmd == vmmci.cmd &&
 		    evtimer_pending(&vmmci.timeout, NULL)) {
 			log_debug("%s: vm %u acknowledged shutdown request",
@@ -1655,7 +1649,6 @@ vmmci_ack(unsigned int cmd)
 			tv.tv_sec = VMMCI_SHUTDOWN_TIMEOUT;
 			evtimer_add(&vmmci.timeout, &tv);
 		}
-		mutex_unlock(&global_evmutex);
 		break;
 	case VMMCI_SYNCRTC:
 		log_debug("%s: vm %u acknowledged RTC sync request",
@@ -2352,28 +2345,24 @@ void
 virtio_stop(struct vm_create_params *vcp)
 {
 	uint8_t i;
-	mutex_lock(&global_evmutex);
 	for (i = 0; i < vcp->vcp_nnics; i++) {
 		if (event_del(&vionet[i].event)) {
 			log_warn("could not initialize vionet event "
 			    "handler");
-			break;
+			return;
 		}
 	}
-	mutex_unlock(&global_evmutex);
 }
 
 void
 virtio_start(struct vm_create_params *vcp)
 {
 	uint8_t i;
-	mutex_lock(&global_evmutex);
 	for (i = 0; i < vcp->vcp_nnics; i++) {
 		if (event_add(&vionet[i].event, NULL)) {
 			log_warn("could not initialize vionet event "
 			    "handler");
-			break;
+			return;
 		}
 	}
-	mutex_unlock(&global_evmutex);
 }

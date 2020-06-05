@@ -38,7 +38,6 @@
 #include "vmd.h"
 
 extern struct event_base *global_evbase;
-extern pthread_mutex_t global_evmutex;
 
 void	 proc_exec(struct privsep *, struct privsep_proc *, unsigned int, int,
 	    int, char **);
@@ -724,12 +723,10 @@ imsg_event_add(struct imsgev *iev)
 	if (iev->ibuf.w.queued)
 		iev->events |= EV_WRITE;
 
-	mutex_lock(&global_evmutex);
 	event_del(&iev->ev);
 	event_set(&iev->ev, iev->ibuf.fd, iev->events, iev->handler, iev->data);
 	event_base_set(global_evbase, &iev->ev);
 	event_add(&iev->ev, NULL);
-	mutex_unlock(&global_evmutex);
 }
 
 int
