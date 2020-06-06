@@ -745,7 +745,7 @@ pause_vm(struct vm_create_params *vcp)
 	if (current_vm->vm_state & VM_STATE_PAUSED)
 		return;
 
-	/* initialize pause barrier before mutating vm_state to prevent
+	/* Initialize pause barrier before mutating vm_state to prevent
 	 * deadlock in vcpu_run_loop
 	 */
 	ret = pthread_barrier_init(&vm_pause_barrier, NULL, vcp->vcp_ncpus + 1);
