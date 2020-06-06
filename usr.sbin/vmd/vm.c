@@ -107,8 +107,6 @@ extern struct vmd *env;
 
 extern char *__progname;
 
-extern struct event_base *global_evbase;
-
 pthread_mutex_t threadmutex;
 pthread_cond_t threadcond;
 
@@ -365,6 +363,8 @@ start_vm(struct vmd_vm *vm, int fd)
 
 	for (i = 0; i < VMM_MAX_NICS_PER_VM; i++)
 		nicfds[i] = vm->vm_ifs[i].vif_fd;
+
+	event_init();
 
 	if (vm->vm_state & VM_STATE_RECEIVED) {
 		restore_emulated_hw(vcp, vm->vm_receive_fd, nicfds,
@@ -1360,7 +1360,7 @@ event_thread(void *arg)
 	uint8_t *donep = arg;
 	intptr_t ret;
 
-	ret = event_base_dispatch(global_evbase);
+	ret = event_dispatch();
 
 	mutex_lock(&threadmutex);
 	*donep = 1;

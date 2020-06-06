@@ -54,8 +54,6 @@ struct vionet_dev *vionet;
 struct vioscsi_dev *vioscsi;
 struct vmmci_dev vmmci;
 
-extern struct event_base *global_evbase;
-
 int nr_vionet;
 int nr_vioblk;
 
@@ -1882,7 +1880,6 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 
 			event_set(&vionet[i].event, vionet[i].fd,
 			    EV_READ | EV_PERSIST, vionet_rx_event, &vionet[i]);
-			event_base_set(global_evbase, &vionet[i].event);
 			if (event_add(&vionet[i].event, NULL)) {
 				log_warn("could not initialize vionet event "
 				    "handler");
@@ -2037,7 +2034,6 @@ virtio_init(struct vmd_vm *vm, int child_cdrom,
 	vmmci.pci_id = id;
 
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
-	event_base_set(global_evbase, &vmmci.timeout);
 }
 
 void
@@ -2071,7 +2067,6 @@ vmmci_restore(int fd, uint32_t vm_id)
 	vmmci.irq = pci_get_dev_irq(vmmci.pci_id);
 	memset(&vmmci.timeout, 0, sizeof(struct event));
 	evtimer_set(&vmmci.timeout, vmmci_timeout, NULL);
-	event_base_set(global_evbase, &vmmci.timeout);
 	return (0);
 }
 
@@ -2146,7 +2141,6 @@ vionet_restore(int fd, struct vmd_vm *vm, int *child_taps)
 			memset(&vionet[i].event, 0, sizeof(struct event));
 			event_set(&vionet[i].event, vionet[i].fd,
 			    EV_READ | EV_PERSIST, vionet_rx_event, &vionet[i]);
-			event_base_set(global_evbase, &vionet[i].event);
 		}
 	}
 	return (0);

@@ -40,8 +40,6 @@ struct ns8250_dev com1_dev;
 #define THREAD_SAFE		1
 #define NOT_THREAD_SAFE 	0
 
-extern struct event_base *global_evbase;
-
 static struct vm_dev_pipe dev_pipe;
 
 static void com_rcv_event(int, short, void *);
@@ -131,7 +129,6 @@ ns8250_init(int fd, uint32_t vmid)
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(global_evbase, &com1_dev.event);
 
 	/*
 	 * Whenever fd is writable implies that the pty slave is connected.
@@ -140,18 +137,15 @@ ns8250_init(int fd, uint32_t vmid)
 	 */
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(global_evbase, &com1_dev.wake);
 	event_add(&com1_dev.wake, NULL);
 
 	/* Rate limiter for simulating baud rate */
 	timerclear(&com1_dev.rate_tv);
 	com1_dev.rate_tv.tv_usec = 10000;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
-	event_base_set(global_evbase, &com1_dev.rate);
 	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
 
 	vm_pipe(&dev_pipe, ns8250_pipe_dispatch);
-	event_base_set(global_evbase, &dev_pipe.read_ev);
 	event_add(&dev_pipe.read_ev, NULL);
 }
 
@@ -709,15 +703,12 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 	com1_dev.baudrate = 115200;
 	com1_dev.pause_ct = (com1_dev.baudrate / 8) / 1000 * 10;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
-	event_base_set(global_evbase, &com1_dev.rate);
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(global_evbase, &com1_dev.event);
 
 	event_set(&com1_dev.wake, com1_dev.fd, EV_WRITE,
 	    com_rcv_event, (void *)(intptr_t)vmid);
-	event_base_set(global_evbase, &com1_dev.wake);
 
 	return (0);
 }

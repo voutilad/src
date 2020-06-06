@@ -45,8 +45,6 @@ extern char *__progname;
  */
 struct i8253_channel i8253_channel[3];
 
-extern struct event_base *global_evbase;
-
 static struct vm_dev_pipe dev_pipe;
 
 static void i8253_reset(uint8_t);
@@ -115,25 +113,18 @@ i8253_init(uint32_t vm_id)
 	i8253_channel[2].state = 0;
 
 	evtimer_set(&i8253_channel[0].timer, i8253_fire, &i8253_channel[0]);
-	event_base_set(global_evbase, &i8253_channel[0].timer);
 
 	evtimer_set(&i8253_channel[1].timer, i8253_fire, &i8253_channel[1]);
-	event_base_set(global_evbase, &i8253_channel[1].timer);
 
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
-	event_base_set(global_evbase, &i8253_channel[2].timer);
 
 	evtimer_set(&i8253_channel[0].reset, i8253_delayed_reset, &i8253_channel[0]);
-	event_base_set(global_evbase, &i8253_channel[0].reset);
 
 	evtimer_set(&i8253_channel[1].reset, i8253_delayed_reset, &i8253_channel[1]);
-	event_base_set(global_evbase, &i8253_channel[1].reset);
 
 	evtimer_set(&i8253_channel[2].reset, i8253_delayed_reset, &i8253_channel[2]);
-	event_base_set(global_evbase, &i8253_channel[2].reset);
 
 	vm_pipe(&dev_pipe, i8253_pipe_dispatch);
-	event_base_set(global_evbase, &dev_pipe.read_ev);
 	event_add(&dev_pipe.read_ev, NULL);
 }
 
@@ -435,7 +426,6 @@ i8253_restore(int fd, uint32_t vm_id)
 		i8253_channel[i].vm_id = vm_id;
 		evtimer_set(&i8253_channel[i].timer, i8253_fire,
 		    &i8253_channel[i]);
-		event_base_set(global_evbase, &i8253_channel[i].timer);
 		i8253_reset(i);
 	}
 	return (0);

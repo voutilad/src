@@ -75,7 +75,6 @@ static struct privsep_proc procs[] = {
 	{ "vmm",	PROC_VMM,	vmd_dispatch_vmm, vmm, vmm_shutdown },
 };
 
-struct event_base *global_evbase;
 struct event staggered_start_timer;
 
 /* For the privileged process */
@@ -832,18 +831,13 @@ main(int argc, char **argv)
 	if (ps->ps_noaction == 0)
 		log_info("startup");
 
-	global_evbase = event_base_new();
+	event_init();
 
 	signal_set(&ps->ps_evsigint, SIGINT, vmd_sighdlr, ps);
-	event_base_set(global_evbase, &ps->ps_evsigint);
 	signal_set(&ps->ps_evsigterm, SIGTERM, vmd_sighdlr, ps);
-	event_base_set(global_evbase, &ps->ps_evsigterm);
 	signal_set(&ps->ps_evsighup, SIGHUP, vmd_sighdlr, ps);
-	event_base_set(global_evbase, &ps->ps_evsighup);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, vmd_sighdlr, ps);
-	event_base_set(global_evbase, &ps->ps_evsigpipe);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, vmd_sighdlr, ps);
-	event_base_set(global_evbase, &ps->ps_evsigusr1);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
@@ -857,7 +851,7 @@ main(int argc, char **argv)
 	if (vmd_configure() == -1)
 		fatalx("configuration failed");
 
-	event_base_dispatch(global_evbase);
+	event_dispatch();
 
 	log_debug("parent exiting");
 
@@ -957,7 +951,6 @@ vmd_configure(void)
 
 	log_debug("%s: starting vms in staggered fashion", __func__);
 	evtimer_set(&staggered_start_timer, start_vm_batch, NULL);
-	event_base_set(global_evbase, &staggered_start_timer);
 
 	/* start first batch */
 	start_vm_batch(0, 0, NULL);
@@ -1029,7 +1022,6 @@ vmd_reload(unsigned int reset, const char *filename)
 
 		log_debug("%s: starting vms in staggered fashion", __func__);
 		evtimer_set(&staggered_start_timer, start_vm_batch, NULL);
-		event_base_set(global_evbase, &staggered_start_timer);
 
 		/* start first batch */
 		start_vm_batch(0, 0, NULL);

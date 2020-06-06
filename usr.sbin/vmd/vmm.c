@@ -64,8 +64,6 @@ int opentap(char *);
 
 extern struct vmd *env;
 
-extern struct event_base *global_evbase;
-
 static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	vmm_dispatch_parent  },
 };
@@ -84,7 +82,6 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 
 	signal_del(&ps->ps_evsigchld);
 	signal_set(&ps->ps_evsigchld, SIGCHLD, vmm_sighdlr, ps);
-	event_base_set(global_evbase, &ps->ps_evsigchld);
 	signal_add(&ps->ps_evsigchld, NULL);
 
 	/*
@@ -712,9 +709,6 @@ vmm_start_vm(struct imsg *imsg, uint32_t *id, pid_t *pid)
 		/* Child */
 		close(fds[0]);
 		close(PROC_PARENT_SOCK_FILENO);
-
-		event_base_free(global_evbase);
-		global_evbase = event_base_new();
 
 		ret = start_vm(vm, fds[1]);
 
