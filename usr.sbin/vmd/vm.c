@@ -1065,7 +1065,6 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	/* Initialize virtio devices */
 	virtio_init(current_vm, child_cdrom, child_disks, child_taps);
 }
-
 /*
  * restore_emulated_hw
  *
