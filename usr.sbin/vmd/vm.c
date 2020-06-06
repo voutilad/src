@@ -745,6 +745,16 @@ pause_vm(struct vm_create_params *vcp)
 	if (current_vm->vm_state & VM_STATE_PAUSED)
 		return;
 
+	/* initialize pause barrier before mutating vm_state to prevent
+	 * deadlock in vcpu_run_loop
+	 */
+	ret = pthread_barrier_init(&vm_pause_barrier, NULL, vcp->vcp_ncpus + 1);
+	if (ret) {
+		log_warnx("%s: cannot initialize pause barrier (%d)",
+		    __progname, ret);
+		return;
+	}
+
 	current_vm->vm_state |= VM_STATE_PAUSED;
 
 	/* Stop the devices first to prevent vcpu_assert_pic_irq deadlock */
@@ -752,13 +762,6 @@ pause_vm(struct vm_create_params *vcp)
 	ns8250_stop();
 	mc146818_stop();
 	i8253_stop();
-
-	ret = pthread_barrier_init(&vm_pause_barrier, NULL, vcp->vcp_ncpus + 1);
-	if (ret) {
-		log_warnx("%s: cannot initialize pause barrier (%d)",
-		    __progname, ret);
-		return;
-	}
 
 	for (n = 0; n < vcp->vcp_ncpus; n++) {
 		ret = pthread_cond_broadcast(&vcpu_run_cond[n]);
