@@ -951,7 +951,6 @@ vmd_configure(void)
 
 	log_debug("%s: starting vms in staggered fashion", __func__);
 	evtimer_set(&staggered_start_timer, start_vm_batch, NULL);
-
 	/* start first batch */
 	start_vm_batch(0, 0, NULL);
 
@@ -1022,7 +1021,6 @@ vmd_reload(unsigned int reset, const char *filename)
 
 		log_debug("%s: starting vms in staggered fashion", __func__);
 		evtimer_set(&staggered_start_timer, start_vm_batch, NULL);
-
 		/* start first batch */
 		start_vm_batch(0, 0, NULL);
 
