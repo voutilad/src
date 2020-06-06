@@ -138,7 +138,6 @@ rtc_fire1(int fd, short type, void *arg)
 		    "resync", __func__, (rtc.now - old));
 		vmmci_ctl(VMMCI_SYNCRTC);
 	}
-
 	evtimer_add(&rtc.sec, &rtc.sec_tv);
 }
 
@@ -225,7 +224,6 @@ rtc_reschedule_per(void)
 		rate = 32768 >> ((rtc.regs[MC_REGA] & MC_RATE_MASK) - 1);
 		us = (1.0 / rate) * 1000000;
 		rtc.per_tv.tv_usec = us;
-
 		if (evtimer_pending(&rtc.per, NULL))
 			evtimer_del(&rtc.per);
 
