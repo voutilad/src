@@ -45,6 +45,7 @@ struct i8253_channel {
 };
 
 void i8253_init(uint32_t);
+void i8253_reset(uint8_t);
 void i8253_fire(int, short, void *);
 int i8253_dump(int);
 int i8253_restore(int, uint32_t);

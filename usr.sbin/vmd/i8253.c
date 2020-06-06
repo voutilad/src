@@ -15,7 +15,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/errno.h>
 #include <sys/time.h>
 #include <sys/types.h>
 
@@ -47,7 +46,6 @@ struct i8253_channel i8253_channel[3];
 
 static struct vm_dev_pipe dev_pipe;
 
-static void i8253_reset(uint8_t);
 static void i8253_delayed_reset(int, short, void*);
 
 /*
@@ -113,18 +111,14 @@ i8253_init(uint32_t vm_id)
 	i8253_channel[2].state = 0;
 
 	evtimer_set(&i8253_channel[0].timer, i8253_fire, &i8253_channel[0]);
-
 	evtimer_set(&i8253_channel[1].timer, i8253_fire, &i8253_channel[1]);
-
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
 
 	evtimer_set(&i8253_channel[0].reset, i8253_delayed_reset, &i8253_channel[0]);
-
 	evtimer_set(&i8253_channel[1].reset, i8253_delayed_reset, &i8253_channel[1]);
-
 	evtimer_set(&i8253_channel[2].reset, i8253_delayed_reset, &i8253_channel[2]);
 
-	vm_pipe(&dev_pipe, i8253_pipe_dispatch);
+	vm_pipe_init(&dev_pipe, i8253_pipe_dispatch);
 	event_add(&dev_pipe.read_ev, NULL);
 }
 

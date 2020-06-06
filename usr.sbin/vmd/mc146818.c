@@ -205,7 +205,7 @@ mc146818_init(uint32_t vm_id, uint64_t memlo, uint64_t memhi)
 
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
 
-	vm_pipe(&dev_pipe, mc146818_pipe_dispatch);
+	vm_pipe_init(&dev_pipe, mc146818_pipe_dispatch);
 	event_add(&dev_pipe.read_ev, NULL);
 }
 
@@ -374,9 +374,7 @@ mc146818_restore(int fd, uint32_t vm_id)
 	memset(&rtc.sec, 0, sizeof(struct event));
 	memset(&rtc.per, 0, sizeof(struct event));
 	evtimer_set(&rtc.sec, rtc_fire1, NULL);
-
 	evtimer_set(&rtc.per, rtc_fireper, (void *)(intptr_t)rtc.vm_id);
-
 	return (0);
 }
 

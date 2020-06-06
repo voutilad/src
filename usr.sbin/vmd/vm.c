@@ -2256,22 +2256,17 @@ translate_gva(struct vm_exit* exit, uint64_t va, uint64_t* pa, int mode)
 }
 
 /*
- * vm_pipe
+ * vm_pipe_init
  *
- * Initialize a vm_dev_pipe, setting up its file descriptors, mutex,
- * condition variable, and event structure.
- *
- * Does not set an event base or add the event. This must be done by
- * the caller.
+ * Initialize a vm_dev_pipe, setting up its file descriptors and its
+ * event structure with the given callback.
  *
  * Parameters:
  *  p: pointer to vm_dev_pipe struct to initizlize
- *  msg_len: size of each message this pipe will support, if set to
- *   zero, default will be sizeof(char)
  *  cb: callback to use for READ events on the read end of the pipe
  */
 void
-vm_pipe(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
+vm_pipe_init(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
 {
 	int ret;
 	int fds[2];
@@ -2291,14 +2286,12 @@ vm_pipe(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
 /*
  * vm_pipe_send
  *
- * Synchronously send a message to an emulated device vie the provided
- * vm_dev_pipe. Currently only sends char-sized messages as only one
- * emulated device (i8253) needs any specific message information (the
- * channel number), so make sure readers pull 1 char off when reading.
+ * Send a message to an emulated device vie the provided vm_dev_pipe.
+ * Messages should be of a value from enum pipe_msg_type.
  *
  * Parameters:
  *  p: pointer to initialized vm_dev_pipe
- *  msg: pointer to the message data to send down the pipe
+ *  msg: message (from pipe_msg_type enum) to send in the channel
  */
 void
 vm_pipe_send(struct vm_dev_pipe *p, uint8_t msg)

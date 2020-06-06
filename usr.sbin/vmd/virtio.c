@@ -1627,7 +1627,6 @@ vmmci_ack(unsigned int cmd)
 			log_debug("%s: vm %u requested shutdown", __func__,
 			    vmmci.vm_id);
 			tv.tv_sec = VMMCI_TIMEOUT;
-
 			evtimer_add(&vmmci.timeout, &tv);
 			return;
 		}

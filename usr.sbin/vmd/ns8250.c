@@ -145,7 +145,7 @@ ns8250_init(int fd, uint32_t vmid)
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
 	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
 
-	vm_pipe(&dev_pipe, ns8250_pipe_dispatch);
+	vm_pipe_init(&dev_pipe, ns8250_pipe_dispatch);
 	event_add(&dev_pipe.read_ev, NULL);
 }
 
@@ -701,6 +701,7 @@ ns8250_restore(int fd, int con_fd, uint32_t vmid)
 	com1_dev.byte_out = 0;
 	com1_dev.regs.divlo = 1;
 	com1_dev.baudrate = 115200;
+	com1_dev.rate_tv.tv_usec = 10000;
 	com1_dev.pause_ct = (com1_dev.baudrate / 8) / 1000 * 10;
 	evtimer_set(&com1_dev.rate, ratelimit, NULL);
 

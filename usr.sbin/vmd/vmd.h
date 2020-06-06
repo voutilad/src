@@ -361,9 +361,9 @@ struct vm_dev_pipe {
 };
 
 enum pipe_msg_type {
-	I8253_RESET_CHAN_0,
-	I8253_RESET_CHAN_1,
-	I8253_RESET_CHAN_2,
+	I8253_RESET_CHAN_0 = 0,
+	I8253_RESET_CHAN_1 = 1,
+	I8253_RESET_CHAN_2 = 2,
 	NS8250_ZERO_READ,
 	MC146818_RESCHEDULE_PER
 };
@@ -456,7 +456,7 @@ int	 vmm_pipe(struct vmd_vm *, int, void (*)(int, short, void *));
 /* vm.c */
 int	 start_vm(struct vmd_vm *, int);
 __dead void vm_shutdown(unsigned int);
-void	 vm_pipe(struct vm_dev_pipe *, void (*)(int, short, void *));
+void	 vm_pipe_init(struct vm_dev_pipe *, void (*)(int, short, void *));
 void	 vm_pipe_send(struct vm_dev_pipe *, uint8_t);
 
 /* control.c */
