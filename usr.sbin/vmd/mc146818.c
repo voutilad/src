@@ -70,8 +70,8 @@ static void rtc_reschedule_per(void);
 /*
  * mc146818_pipe_handler
  *
- * Drains the device pipe when called and reschedules the periodic
- * timer safely.
+ * Reads a message off the pipe, expecting a request to reschedule periodic
+ * interrupt rate.
  */
 static void
 mc146818_pipe_dispatch(int fd, short event, void *arg)

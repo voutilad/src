@@ -46,12 +46,11 @@ struct i8253_channel i8253_channel[3];
 
 static struct vm_dev_pipe dev_pipe;
 
-static void i8253_delayed_reset(int, short, void*);
-
 /*
  * i8253_pipe_handler
  *
- * Reads a channel number off the device pipe and resets it.
+ * Reads a message off the pipe, expecting one that corresponds to a
+ * reset request for a specific channel.
  *
  */
 static void
@@ -113,10 +112,6 @@ i8253_init(uint32_t vm_id)
 	evtimer_set(&i8253_channel[0].timer, i8253_fire, &i8253_channel[0]);
 	evtimer_set(&i8253_channel[1].timer, i8253_fire, &i8253_channel[1]);
 	evtimer_set(&i8253_channel[2].timer, i8253_fire, &i8253_channel[2]);
-
-	evtimer_set(&i8253_channel[0].reset, i8253_delayed_reset, &i8253_channel[0]);
-	evtimer_set(&i8253_channel[1].reset, i8253_delayed_reset, &i8253_channel[1]);
-	evtimer_set(&i8253_channel[2].reset, i8253_delayed_reset, &i8253_channel[2]);
 
 	vm_pipe_init(&dev_pipe, i8253_pipe_dispatch);
 	event_add(&dev_pipe.read_ev, NULL);
@@ -433,30 +428,11 @@ i8253_stop()
 		evtimer_del(&i8253_channel[i].timer);
 }
 
-static void
-i8253_delayed_reset(int fd, short type, void *arg)
-{
-	int i;
-	struct i8253_channel *chn = arg;
-
-	for (i = 0; i < 3; i++) {
-		if (chn == &i8253_channel[i]) {
-			i8253_reset(i);
-			return;
-		}
-	}
-}
-
 void
 i8253_start()
 {
 	int i;
-	struct timeval tv;
-
-	timerclear(&tv);
-	tv.tv_usec = 1000;
-
 	for (i = 0; i < 3; i++)
 		if (i8253_channel[i].in_use)
-			evtimer_add(&i8253_channel[i].reset, &tv);
+			i8253_reset(i);
 }

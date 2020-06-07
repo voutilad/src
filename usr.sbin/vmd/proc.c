@@ -35,7 +35,6 @@
 #include <imsg.h>
 
 #include "proc.h"
-#include "vmd.h"
 
 void	 proc_exec(struct privsep *, struct privsep_proc *, unsigned int, int,
 	    int, char **);

@@ -745,23 +745,14 @@ pause_vm(struct vm_create_params *vcp)
 	if (current_vm->vm_state & VM_STATE_PAUSED)
 		return;
 
-	/* Initialize pause barrier before mutating vm_state to prevent
-	 * deadlock in vcpu_run_loop
-	 */
+	current_vm->vm_state |= VM_STATE_PAUSED;
+
 	ret = pthread_barrier_init(&vm_pause_barrier, NULL, vcp->vcp_ncpus + 1);
 	if (ret) {
 		log_warnx("%s: cannot initialize pause barrier (%d)",
 		    __progname, ret);
 		return;
 	}
-
-	current_vm->vm_state |= VM_STATE_PAUSED;
-
-	/* Stop the devices first to prevent vcpu_assert_pic_irq deadlock */
-	virtio_stop(vcp);
-	ns8250_stop();
-	mc146818_stop();
-	i8253_stop();
 
 	for (n = 0; n < vcp->vcp_ncpus; n++) {
 		ret = pthread_cond_broadcast(&vcpu_run_cond[n]);
@@ -785,6 +776,10 @@ pause_vm(struct vm_create_params *vcp)
 		return;
 	}
 
+	i8253_stop();
+	mc146818_stop();
+	ns8250_stop();
+	virtio_stop(vcp);
 }
 
 void
@@ -1948,10 +1943,6 @@ vcpu_assert_pic_irq(uint32_t vm_id, uint32_t vcpu_id, int irq)
 	int ret;
 
 	i8259_assert_irq(irq);
-
-	/* Our event loop thread may enter while paused, so check and bail if so. */
-	if (current_vm->vm_state & VM_STATE_PAUSED)
-		return;
 
 	if (i8259_is_pending()) {
 		if (vcpu_pic_intr(vm_id, vcpu_id, 1))
