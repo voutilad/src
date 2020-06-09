@@ -59,9 +59,7 @@ i8253_pipe_dispatch(int fd, short event, void *arg)
 	size_t n;
 	uint8_t msg;
 
-	n = read(fd, &msg, sizeof(msg));
-	if (n != sizeof(msg))
-		fatal("failed to read from device pipe");
+	msg = vm_pipe_read(&dev_pipe);
 
 	switch (msg) {
 	case I8253_RESET_CHAN_0:
@@ -74,7 +72,7 @@ i8253_pipe_dispatch(int fd, short event, void *arg)
 		i8253_reset(2);
 		break;
 	default:
-		fatal("unknown pipe message %u", msg);
+		fatal("unexpected pipe message %u", msg);
 	}
 }
 

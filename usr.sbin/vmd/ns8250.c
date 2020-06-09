@@ -58,16 +58,14 @@ ns8250_pipe_dispatch(int fd, short event, void *arg)
 	size_t n;
 	uint8_t msg;
 
-	n = read(fd, &msg, sizeof(msg));
-	if (n != sizeof(msg))
-		fatal("failed to read from device pipe");
+	msg = vm_pipe_read(&dev_pipe);
 
 	if (msg == NS8250_ZERO_READ) {
 		log_debug("%s: resetting events after zero byte read", __func__);
 		event_del(&com1_dev.event);
 		event_add(&com1_dev.wake, NULL);
 	} else {
-		fatal("unknown pipe message %u", msg);
+		fatal("unexpected pipe message %u", msg);
 	}
 }
 

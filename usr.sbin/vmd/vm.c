@@ -2290,3 +2290,15 @@ vm_pipe_send(struct vm_dev_pipe *p, uint8_t msg)
 	if (n != sizeof(msg))
 		fatal("failed to write to device pipe");
 }
+
+uint8_t
+vm_pipe_read(struct vm_dev_pipe *p)
+{
+	size_t n;
+	uint8_t msg;
+	n = read(p->read, &msg, sizeof(msg));
+	if (n != sizeof(msg))
+		fatal("failed to read from device pipe");
+
+	return msg;
+}
