@@ -2278,7 +2278,7 @@ vm_pipe_init(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
  * Send a message to an emulated device vie the provided vm_dev_pipe.
  * Messages should be of a value from enum pipe_msg_type.
  *
- * Parameters:
+ * parameters:
  *  p: pointer to initialized vm_dev_pipe
  *  msg: message (from pipe_msg_type enum) to send in the channel
  */
@@ -2289,4 +2289,25 @@ vm_pipe_send(struct vm_dev_pipe *p, uint8_t msg)
 	n = write(p->write, &msg, sizeof(msg));
 	if (n != sizeof(msg))
 		fatal("failed to write to device pipe");
+}
+
+/*
+ * vm_pipe_read
+ *
+ * Read a message for an emulated device via the provided vm_dev_pipe.
+ * Returns the message otherwise Will exit on failure.
+ *
+ * parameters:
+ *  p: pointer to initialized vm_dev_pipe
+ */
+uint8_t
+vm_pipe_read(struct vm_dev_pipe *p)
+{
+	size_t n;
+	uint8_t msg;
+	n = read(p->read, &msg, sizeof(msg));
+	if (n != sizeof(msg))
+		fatal("failed to read from device pipe");
+
+	return msg;
 }

@@ -79,15 +79,13 @@ mc146818_pipe_dispatch(int fd, short event, void *arg)
 	size_t n;
 	uint8_t msg;
 
-	n = read(fd, &msg, sizeof(msg));
-	if (n != sizeof(msg))
-		fatal("failed to read from device pipe");
+	msg = vm_pipe_read(&dev_pipe);
 
 	if (msg == MC146818_RESCHEDULE_PER) {
 		log_debug("%s: rescheduling periodic timer", __func__);
 		rtc_reschedule_per();
 	} else {
-		fatal("unknown pipe message %u", msg);
+		fatal("unexpected pipe message %u", msg);
 	}
 }
 
