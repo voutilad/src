@@ -55,11 +55,9 @@ static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t, int8_t);
 static void
 ns8250_pipe_dispatch(int fd, short event, void *arg)
 {
-	size_t n;
 	uint8_t msg;
 
-	msg = vm_pipe_read(&dev_pipe);
-
+	msg = vm_pipe_recv(&dev_pipe);
 	if (msg == NS8250_ZERO_READ) {
 		log_debug("%s: resetting events after zero byte read", __func__);
 		event_del(&com1_dev.event);

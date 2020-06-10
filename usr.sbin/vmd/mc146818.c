@@ -68,7 +68,7 @@ static struct vm_dev_pipe dev_pipe;
 static void rtc_reschedule_per(void);
 
 /*
- * mc146818_pipe_handler
+ * mc146818_pipe_dispatch
  *
  * Reads a message off the pipe, expecting a request to reschedule periodic
  * interrupt rate.
@@ -76,11 +76,9 @@ static void rtc_reschedule_per(void);
 static void
 mc146818_pipe_dispatch(int fd, short event, void *arg)
 {
-	size_t n;
 	uint8_t msg;
 
-	msg = vm_pipe_read(&dev_pipe);
-
+	msg = vm_pipe_recv(&dev_pipe);
 	if (msg == MC146818_RESCHEDULE_PER) {
 		log_debug("%s: rescheduling periodic timer", __func__);
 		rtc_reschedule_per();

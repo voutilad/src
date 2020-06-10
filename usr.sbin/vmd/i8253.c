@@ -47,20 +47,17 @@ struct i8253_channel i8253_channel[3];
 static struct vm_dev_pipe dev_pipe;
 
 /*
- * i8253_pipe_handler
+ * i8253_pipe_dispatch
  *
  * Reads a message off the pipe, expecting one that corresponds to a
  * reset request for a specific channel.
- *
  */
 static void
 i8253_pipe_dispatch(int fd, short event, void *arg)
 {
-	size_t n;
 	uint8_t msg;
 
-	msg = vm_pipe_read(&dev_pipe);
-
+	msg = vm_pipe_recv(&dev_pipe);
 	switch (msg) {
 	case I8253_RESET_CHAN_0:
 		i8253_reset(0);

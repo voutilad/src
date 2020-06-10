@@ -2292,16 +2292,16 @@ vm_pipe_send(struct vm_dev_pipe *p, uint8_t msg)
 }
 
 /*
- * vm_pipe_read
+ * vm_pipe_recv
  *
- * Read a message for an emulated device via the provided vm_dev_pipe.
- * Returns the message otherwise Will exit on failure.
+ * Receive a message for an emulated device via the provided vm_dev_pipe.
+ * Returns the message value, otherwise will exit on failure.
  *
- * parameters:
+ * Parameters:
  *  p: pointer to initialized vm_dev_pipe
  */
 uint8_t
-vm_pipe_read(struct vm_dev_pipe *p)
+vm_pipe_recv(struct vm_dev_pipe *p)
 {
 	size_t n;
 	uint8_t msg;
