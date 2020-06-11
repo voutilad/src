@@ -58,11 +58,16 @@ ns8250_pipe_dispatch(int fd, short event, void *arg)
 	uint8_t msg;
 
 	msg = vm_pipe_recv(&dev_pipe);
-	if (msg == NS8250_ZERO_READ) {
+	switch(msg) {
+	case NS8250_ZERO_READ:
 		log_debug("%s: resetting events after zero byte read", __func__);
 		event_del(&com1_dev.event);
 		event_add(&com1_dev.wake, NULL);
-	} else {
+		break;
+	case NS8250_RATELIMIT:
+		evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+		break;
+	default:
 		fatal("unexpected pipe message %u", msg);
 	}
 }
@@ -86,12 +91,10 @@ ratelimit(int fd, short type, void *arg)
 	mutex_lock(&com1_dev.mutex);
 	com1_dev.regs.iir |= IIR_TXRDY;
 	com1_dev.regs.iir &= ~IIR_NOPEND;
-	mutex_unlock(&com1_dev.mutex);
 
 	vcpu_assert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
 	vcpu_deassert_pic_irq(com1_dev.vmid, 0, com1_dev.irq);
-
-	evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
+	mutex_unlock(&com1_dev.mutex);
 }
 
 void
@@ -168,21 +171,26 @@ com_rcv_event(int fd, short kind, void *arg)
 	 * has become available now will be moved to the com port later.
 	 */
 	if (com1_dev.rcv_pending) {
-		mutex_unlock(&com1_dev.mutex);
-		return;
+		goto end;
 	}
 
 	if (com1_dev.regs.lsr & LSR_RXRDY)
 		com1_dev.rcv_pending = 1;
 	else {
 		com_rcv(&com1_dev, (uintptr_t)arg, 0, NS8250_DEV_THREAD);
+	}
 
-		/* If pending interrupt, inject */
-		if ((com1_dev.regs.iir & IIR_NOPEND) == 0) {
-			/* XXX: vcpu_id */
-			vcpu_assert_pic_irq((uintptr_t)arg, 0, com1_dev.irq);
-			vcpu_deassert_pic_irq((uintptr_t)arg, 0, com1_dev.irq);
-		}
+end:
+	if (com1_dev.regs.ier & IER_ERXRDY) {
+		com1_dev.regs.iir |= IIR_RXRDY;
+		com1_dev.regs.iir &= ~IIR_NOPEND;
+	}
+
+	/* If pending interrupt, inject */
+	if ((com1_dev.regs.iir & IIR_NOPEND) == 0) {
+		/* XXX: vcpu_id */
+		vcpu_assert_pic_irq((uintptr_t)arg, 0, com1_dev.irq);
+		vcpu_deassert_pic_irq((uintptr_t)arg, 0, com1_dev.irq);
 	}
 
 	mutex_unlock(&com1_dev.mutex);
@@ -298,12 +306,12 @@ vcpu_process_com_data(struct vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		com1_dev.byte_out++;
 
 		if (com1_dev.regs.ier & IER_ETXRDY) {
-			/* Set TXRDY and clear "no pending interrupt"
-			 * only if we're not at the pause point. Otherwise
-			 * the rate limiter timer event will handle it.
-			 */
-			if (!(com1_dev.pause_ct > 0 &&
-			      com1_dev.byte_out % com1_dev.pause_ct == 0)) {
+			/* Limit output rate if needed */
+			if (com1_dev.pause_ct > 0 &&
+			    com1_dev.byte_out % com1_dev.pause_ct == 0) {
+				vm_pipe_send(&dev_pipe, NS8250_RATELIMIT);
+			} else {
+				/* Set TXRDY and clear "no pending interrupt" */
 				com1_dev.regs.iir |= IIR_TXRDY;
 				com1_dev.regs.iir &= ~IIR_NOPEND;
 			}
