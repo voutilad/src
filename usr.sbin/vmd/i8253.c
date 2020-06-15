@@ -55,7 +55,7 @@ static struct vm_dev_pipe dev_pipe;
 static void
 i8253_pipe_dispatch(int fd, short event, void *arg)
 {
-	uint8_t msg;
+	enum pipe_msg_type msg;
 
 	msg = vm_pipe_recv(&dev_pipe);
 	switch (msg) {
@@ -69,7 +69,7 @@ i8253_pipe_dispatch(int fd, short event, void *arg)
 		i8253_reset(2);
 		break;
 	default:
-		fatal("unexpected pipe message %u", msg);
+		fatalx("%s: unexpected pipe message %d", __func__, msg);
 	}
 }
 

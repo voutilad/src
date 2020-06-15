@@ -76,14 +76,13 @@ static void rtc_reschedule_per(void);
 static void
 mc146818_pipe_dispatch(int fd, short event, void *arg)
 {
-	uint8_t msg;
+	enum pipe_msg_type msg;
 
 	msg = vm_pipe_recv(&dev_pipe);
 	if (msg == MC146818_RESCHEDULE_PER) {
-		log_debug("%s: rescheduling periodic timer", __func__);
 		rtc_reschedule_per();
 	} else {
-		fatal("unexpected pipe message %u", msg);
+		fatalx("%s: unexpected pipe message %d", __func__, msg);
 	}
 }
 

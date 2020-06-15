@@ -44,7 +44,7 @@ struct ns8250_dev com1_dev;
 static struct vm_dev_pipe dev_pipe;
 
 static void com_rcv_event(int, short, void *);
-static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t, int8_t);
+static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t, int);
 
 /*
  * ns8250_pipe_dispatch
@@ -55,7 +55,7 @@ static void com_rcv(struct ns8250_dev *, uint32_t, uint32_t, int8_t);
 static void
 ns8250_pipe_dispatch(int fd, short event, void *arg)
 {
-	uint8_t msg;
+	enum pipe_msg_type msg;
 
 	msg = vm_pipe_recv(&dev_pipe);
 	switch(msg) {
@@ -68,7 +68,7 @@ ns8250_pipe_dispatch(int fd, short event, void *arg)
 		evtimer_add(&com1_dev.rate, &com1_dev.rate_tv);
 		break;
 	default:
-		fatal("unexpected pipe message %u", msg);
+		fatalx("%s: unexpected pipe message %d", __func__, msg);
 	}
 }
 
@@ -227,7 +227,7 @@ com_rcv_handle_break(struct ns8250_dev *com, uint8_t cmd)
  * Must be called with the mutex of the com device acquired.
  */
 static void
-com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id, int8_t thread)
+com_rcv(struct ns8250_dev *com, uint32_t vm_id, uint32_t vcpu_id, int thread)
 {
 	char buf[2];
 	ssize_t sz;

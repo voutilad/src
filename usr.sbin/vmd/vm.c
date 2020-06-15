@@ -2263,9 +2263,9 @@ vm_pipe_init(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
 	memset(p, 0, sizeof(struct vm_dev_pipe));
 
 	ret = pipe(fds);
-	if (ret) {
+	if (ret)
 		fatal("failed to create vm_dev_pipe pipe");
-	}
+
 	p->read = fds[0];
 	p->write = fds[1];
 
@@ -2280,10 +2280,10 @@ vm_pipe_init(struct vm_dev_pipe *p, void (*cb)(int, short, void *))
  *
  * parameters:
  *  p: pointer to initialized vm_dev_pipe
- *  msg: message (from pipe_msg_type enum) to send in the channel
+ *  msg: message to send in the channel
  */
 void
-vm_pipe_send(struct vm_dev_pipe *p, uint8_t msg)
+vm_pipe_send(struct vm_dev_pipe *p, enum pipe_msg_type msg)
 {
 	size_t n;
 	n = write(p->write, &msg, sizeof(msg));
@@ -2304,7 +2304,7 @@ uint8_t
 vm_pipe_recv(struct vm_dev_pipe *p)
 {
 	size_t n;
-	uint8_t msg;
+	enum pipe_msg_type msg;
 	n = read(p->read, &msg, sizeof(msg));
 	if (n != sizeof(msg))
 		fatal("failed to read from device pipe");

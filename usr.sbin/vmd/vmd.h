@@ -458,7 +458,7 @@ int	 vmm_pipe(struct vmd_vm *, int, void (*)(int, short, void *));
 int	 start_vm(struct vmd_vm *, int);
 __dead void vm_shutdown(unsigned int);
 void	 vm_pipe_init(struct vm_dev_pipe *, void (*)(int, short, void *));
-void	 vm_pipe_send(struct vm_dev_pipe *, uint8_t);
+void	 vm_pipe_send(struct vm_dev_pipe *, enum pipe_msg_type);
 uint8_t	 vm_pipe_recv(struct vm_dev_pipe *);
 
 /* control.c */
