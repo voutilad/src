@@ -168,22 +168,14 @@ com_rcv_event(int fd, short kind, void *arg)
 
 	/*
 	 * We already have other data pending to be received. The data that
-	 * has become available now will be moved to the com port later.
+	 * has become available now will be moved to the com port later by
+	 * the vcpu.
 	 */
-	if (com1_dev.rcv_pending) {
-		goto end;
-	}
-
-	if (com1_dev.regs.lsr & LSR_RXRDY)
-		com1_dev.rcv_pending = 1;
-	else {
-		com_rcv(&com1_dev, (uintptr_t)arg, 0, NS8250_DEV_THREAD);
-	}
-
-end:
-	if (com1_dev.regs.ier & IER_ERXRDY) {
-		com1_dev.regs.iir |= IIR_RXRDY;
-		com1_dev.regs.iir &= ~IIR_NOPEND;
+	if (!com1_dev.rcv_pending) {
+		if (com1_dev.regs.lsr & LSR_RXRDY)
+			com1_dev.rcv_pending = 1;
+		else
+			com_rcv(&com1_dev, (uintptr_t)arg, 0, NS8250_DEV_THREAD);
 	}
 
 	/* If pending interrupt, inject */
